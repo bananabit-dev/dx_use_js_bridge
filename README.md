@@ -1,4 +1,6 @@
-Dioxus JS Bridge (dx_use_js_bridge)
+# Dioxus JS Bridge (dx_use_js_bridge)
+
+TODO THIS IS A WORK IN PROGRESS USE IT AT YOUR OWN RISK!.
 
 A simple, platform-agnostic hook for two-way communication between Dioxus applications and JavaScript. This library allows you to send data from your Rust components to JavaScript and receive data back, using any serializable data type.
 Features
