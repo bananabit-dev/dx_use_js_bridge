@@ -603,6 +603,7 @@ dependencies = [
  "dioxus-desktop",
  "dioxus-fullstack",
  "dioxus-web",
+ "serde",
  "subsecond",
 ]
 
