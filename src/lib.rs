@@ -2,7 +2,6 @@ use dioxus::prelude::*;
 use dioxus::core::use_drop;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use js_sys::Function;
 
 
 
@@ -104,10 +103,7 @@ where
         {
             format!(
                 "callback_{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_micros()
+                chrono::Utc::now().timestamp_millis()
             )
         }
     });
