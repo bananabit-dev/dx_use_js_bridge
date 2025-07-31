@@ -1,4 +1,4 @@
-Dioxus JS Bridge
+Dioxus JS Bridge (dx_use_js_bridge)
 
 A simple, platform-agnostic hook for two-way communication between Dioxus applications and JavaScript. This library allows you to send data from your Rust components to JavaScript and receive data back, using any serializable data type.
 Features
@@ -20,17 +20,13 @@ Installation
 Add the library to your Cargo.toml file.
 
 [dependencies]
-# Replace with the actual crate name if you publish it
-dx_use_js_bridge = { path = "path/to/your/lib" } 
-
-# Or from crates.io
-# dx_use_js_bridge = "0.1.0"
+dx_use_js_bridge = "0.1.0" # Replace with the latest version
 
 The library has one optional feature, uuid, which can be enabled for stronger unique ID generation for each bridge instance.
 
 # In your main application's Cargo.toml
 [dependencies]
-dx_use_js_bridge = { path = "path/to/your/lib", features = ["uuid"] }
+dx_use_js_bridge = { version = "0.1.0", features = ["uuid"] }
 
 How to Use
 1. In Your Rust Component
@@ -136,3 +132,6 @@ rsx! {
     }
 }
 
+License
+
+This project is licensed under the MIT License - see the LICENSE.md file for details.
