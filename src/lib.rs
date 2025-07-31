@@ -5,6 +5,13 @@ use std::fmt::Debug;
 
 #[cfg(feature = "web")]
 use wasm_bindgen::prelude::*;
+#[cfg(feature = "web")]
+
+use wasm_bindgen::JsValue;
+#[cfg(feature = "web")]
+
+use web_sys::js_sys::*;
+
 
 // Trait for types that can be safely deserialized from JS
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
