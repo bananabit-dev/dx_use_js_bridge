@@ -9,8 +9,16 @@ use wasm_bindgen::prelude::*;
 
 use wasm_bindgen::JsValue;
 #[cfg(feature = "web")]
+use wasm_bindgen::prelude::*;
+#[cfg(feature = "web")]
 
-use web_sys::js_sys::*;
+use wasm_bindgen::JsValue;
+#[cfg(feature = "web")]
+use web_sys::js_sys;
+#[cfg(feature = "web")]
+
+use js_sys::Function;
+
 
 
 // Trait for types that can be safely deserialized from JS
