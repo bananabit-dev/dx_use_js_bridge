@@ -2,21 +2,6 @@ use dioxus::prelude::*;
 use dioxus::core::use_drop;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-
-#[cfg(feature = "web")]
-use wasm_bindgen::prelude::*;
-#[cfg(feature = "web")]
-
-use wasm_bindgen::JsValue;
-#[cfg(feature = "web")]
-use wasm_bindgen::prelude::*;
-#[cfg(feature = "web")]
-
-use wasm_bindgen::JsValue;
-#[cfg(feature = "web")]
-use web_sys::js_sys;
-#[cfg(feature = "web")]
-
 use js_sys::Function;
 
 
