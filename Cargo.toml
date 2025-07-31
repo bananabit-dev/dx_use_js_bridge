@@ -2,12 +2,25 @@
 name = "dx_use_js_bridge"
 version = "0.1.0"
 edition = "2024"
+# A brief, one-sentence description of your crate
+description = "A Dioxus hook for two-way communication with JavaScript."
+# A valid SPDX license identifier. "MIT" and "Apache-2.0" are common.
+license = "MIT"
+# A link to your crate's repository
+repository = "https://github.com/bananabit-dev/dx_use_js_bridge"
+# A link to your crate's documentation
+documentation = "https://docs.rs/dx_use_js_bridge"
+# Keywords for discoverability
+keywords = ["dioxus", "hooks", "javascript", "bridge", "wasm"]
+# Categories for discoverability
+categories = ["gui", "wasm", "web-programming"]
+
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-dioxus = { version = "0.7.0-alpha.3", features = ["web", "desktop"] }
+dioxus = { version = "0.7.0-alpha.3", default-features = false, features = ["hooks", "signals"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 uuid = { version = "1.0", features = ["v4", "js"], optional = true }
