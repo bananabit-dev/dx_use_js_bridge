@@ -2,15 +2,8 @@ use dioxus::prelude::*;
 use dioxus::core::use_drop;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use js_sys::Function;
 
-#[cfg(feature = "web")]
-use wasm_bindgen::prelude::*;
-#[cfg(feature = "web")]
-
-use wasm_bindgen::JsValue;
-#[cfg(feature = "web")]
-
-use web_sys::js_sys::*;
 
 
 // Trait for types that can be safely deserialized from JS
