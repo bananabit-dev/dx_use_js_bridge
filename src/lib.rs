@@ -119,6 +119,7 @@ where
     use_effect(move || {
         #[cfg(feature = "web")]
         {
+            use wasm_bindgen::{prelude::Closure, JsValue};
             use web_sys::js_sys;
             let callback_id_str = bridge_for_effect.callback_id();
 
