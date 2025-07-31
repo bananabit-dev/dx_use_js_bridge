@@ -117,6 +117,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d27c3610c36aee21ce8ac510e6224498de4228ad772a171ed65643a24693a5a8"
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -602,8 +608,8 @@ dependencies = [
  "dioxus-core",
  "dioxus-desktop",
  "dioxus-fullstack",
+ "dioxus-router",
  "dioxus-web",
- "serde",
  "subsecond",
 ]
 
@@ -937,10 +943,46 @@ version = "0.7.0-alpha.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3340a7eeebc207010d27dcf2b347c748dfd6a8605dc3624019f0c7a06e0d5d8b"
 dependencies = [
+ "dioxus-config-macro",
  "dioxus-core",
+ "dioxus-core-macro",
  "dioxus-document",
  "dioxus-history",
+ "dioxus-hooks",
  "dioxus-html",
+ "dioxus-rsx",
+ "dioxus-signals",
+]
+
+[[package]]
+name = "dioxus-router"
+version = "0.7.0-alpha.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1407fe9efc73196704e362a07e0c2c2f70158bab255dedeee49a964a8cf32bdb"
+dependencies = [
+ "dioxus-cli-config",
+ "dioxus-history",
+ "dioxus-lib",
+ "dioxus-router-macro",
+ "percent-encoding",
+ "rustversion",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "dioxus-router-macro"
+version = "0.7.0-alpha.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bff755fd06ac6e3b5d6bc1f2a43c4fbd9dd610de3fe5dd6e6b6685e7d8c88082"
+dependencies = [
+ "base16",
+ "digest",
+ "proc-macro2",
+ "quote",
+ "sha2",
+ "slab",
+ "syn 2.0.104",
 ]
 
 [[package]]
