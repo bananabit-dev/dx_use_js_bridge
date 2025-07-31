@@ -33,6 +33,4 @@ chrono = "0.4.41"
 
 [features]
 default = []
-web = ["dioxus/web"]
-desktop = ["dioxus/desktop"]
 uuid = ["dep:uuid"]
