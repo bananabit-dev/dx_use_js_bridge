@@ -42,7 +42,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
 
     // Evaluates JavaScript code. This is a core capability of the bridge.
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-        #[cfg(feature = "web")]
+       // #[cfg(feature = "web")]
         {
             web_sys::js_sys::eval(js_code).map_err(|e| format!("JS eval error: {:?}", e))?;
             Ok(())
