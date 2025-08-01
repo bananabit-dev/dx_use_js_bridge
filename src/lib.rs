@@ -108,7 +108,7 @@ where
     // This effect runs once to set up the JS callback.
     let bridge_for_effect = bridge.clone();
     use_effect(move || {
-        #[cfg(feature = "web")]
+        //#[cfg(feature = "web")]
         {
             use wasm_bindgen::{JsValue, prelude::Closure};
             use web_sys::js_sys;
@@ -154,7 +154,7 @@ where
     // Use `use_drop` for cleanup logic, as this is the modern Dioxus API.
     let bridge_for_destroy = bridge.clone();
     use_drop(move || {
-        #[cfg(feature = "web")]
+        //#[cfg(feature = "web")]
         {
             if let Some(window) = web_sys::window() {
                 let callback_name = format!("__dioxus_bridge_{}", bridge_for_destroy.callback_id());
