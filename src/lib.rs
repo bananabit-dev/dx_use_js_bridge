@@ -45,7 +45,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
        // #[cfg(feature = "web")]
         {
             web_sys::js_sys::eval(js_code).map_err(|e| format!("JS eval error: {:?}", e))?;
-            Ok(())
+            return Ok(());
         }
 
         #[cfg(not(feature = "web"))]
