@@ -1,9 +1,7 @@
-use dioxus::prelude::*;
 use dioxus::core::use_drop;
+use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-
-
 
 // Trait for types that can be safely deserialized from JS
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
@@ -37,7 +35,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
     pub fn get_error(&self) -> Option<String> {
         self.error.read().clone()
     }
-    
+
     pub fn callback_id(&self) -> String {
         self.callback_id.read().clone()
     }
@@ -93,7 +91,7 @@ where
         {
             uuid::Uuid::new_v4().to_string().replace("-", "_")
         }
-        
+
         #[cfg(all(not(feature = "uuid"), feature = "web"))]
         {
             let random_part: String = js_sys::Math::random().to_string().chars().skip(2).collect();
@@ -101,10 +99,7 @@ where
         }
         #[cfg(all(not(feature = "uuid"), not(feature = "web")))]
         {
-            format!(
-                "callback_{}",
-                chrono::Utc::now().timestamp_millis()
-            )
+            format!("callback_{}", chrono::Utc::now().timestamp_millis())
         }
     });
 
@@ -115,20 +110,36 @@ where
     use_effect(move || {
         #[cfg(feature = "web")]
         {
-            use wasm_bindgen::{prelude::Closure, JsValue};
+            use wasm_bindgen::{JsValue, prelude::Closure};
             use web_sys::js_sys;
             let callback_id_str = bridge_for_effect.callback_id();
 
             // Create and register the callback that JS will call.
+            // inside the effect that installs the JS callback
             let callback = Closure::<dyn FnMut(JsValue)>::new(move |val: JsValue| {
+                // Fast path: try to deserialize the value directly
                 match serde_wasm_bindgen::from_value::<T>(val.clone()) {
-                    Ok(parsed_data) => {
-                        *data.write() = Some(parsed_data);
+                    Ok(parsed) => {
+                        *data.write() = Some(parsed);
                         *error.write() = None;
+                        return;
                     }
-                    Err(e) => {
-                        *error.write() = Some(format!("Deserialization error: {}", e));
+                    Err(_) => {} // fall through – might be a JSON string
+                }
+
+                // If we got here the value is NOT the right type.
+                // Try again: maybe it's a JSON string.
+                if let Some(s) = val.as_string() {
+                    match serde_json::from_str::<T>(&s) {
+                        Ok(parsed) => {
+                            *data.write() = Some(parsed);
+                            *error.write() = None;
+                            return;
+                        }
+                        Err(e) => *error.write() = Some(format!("Deserialization error: {e}")),
                     }
+                } else {
+                    *error.write() = Some("Unsupported value type sent over JsBridge".to_string());
                 }
             });
 
@@ -139,7 +150,7 @@ where
             callback.forget();
         }
     });
-    
+
     // Use `use_drop` for cleanup logic, as this is the modern Dioxus API.
     let bridge_for_destroy = bridge.clone();
     use_drop(move || {
