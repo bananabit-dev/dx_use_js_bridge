@@ -141,29 +141,27 @@ where
             let callback_id_str = bridge_for_effect.callback_id();
             let mut bridge_for_callback = bridge_for_effect.clone();
             let callback = Closure::<dyn FnMut(JsValue)>::new(move |val: JsValue| {
-                match serde_wasm_bindgen::from_value::<T>(val.clone()) {
+                // Try to deserialize directly using serde-wasm-bindgen
+                match val.into_serde() {
                     Ok(parsed) => {
                         bridge_for_callback.set_data(Some(parsed));
                         bridge_for_callback.set_error(None);
                         return;
                     }
-                    Err(_) => {}
-                }
-                // Fixed: Use as_string() correctly
-                if let Ok(s) = val.as_string() {
-                    match serde_json::from_str::<T>(&s) {
-                        Ok(parsed) => {
-                            bridge_for_callback.set_data(Some(parsed));
-                            bridge_for_callback.set_error(None);
-                            return;
+                    Err(_) => {
+                        // If direct deserialization fails, try to convert to string first
+                        let js_string = js_sys::JsString::from(val);
+                        let rust_string = String::from(js_string);
+                        match serde_json::from_str::<T>(&rust_string) {
+                            Ok(parsed) => {
+                                bridge_for_callback.set_data(Some(parsed));
+                                bridge_for_callback.set_error(None);
+                                return;
+                            }
+                            Err(e) => bridge_for_callback
+                                .set_error(Some(format!("Deserialization error: {e}"))),
                         }
-                        Err(e) => bridge_for_callback
-                            .set_error(Some(format!("Deserialization error: {e}"))),
                     }
-                } else {
-                    bridge_for_callback.set_error(Some(
-                        "Unsupported value type sent over JsBridge".to_string(),
-                    ));
                 }
             });
             let window = web_sys::window().expect("no global window");
