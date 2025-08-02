@@ -45,8 +45,8 @@ impl<T: FromJs + Clone> JsBridge<T> {
 
     /// Rust → JS: Evaluate JS code (cross-platform via dioxus::html::document().eval)
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-        dioxus::document::
-            eval(js_code)
+        dioxus::html::document()
+            .eval(js_code)
             .await
             .map(|_| ())
             .map_err(|e| format!("JS eval error: {:?}", e))
@@ -196,24 +196,38 @@ where
         }
     }
 
-    // --- Android: Register JNI callback ---
+    // --- Android: Register JNI callback with channel to main thread ---
     #[cfg(target_os = "android")]
     {
         use self::android_bridge::{register_callback, unregister_callback};
-        let mut bridge_for_callback = bridge.clone();
+        use std::sync::mpsc::channel;
+
+        let (tx, rx) = channel::<String>();
         let callback_id_str = bridge.callback_id();
+
         register_callback(
             callback_id_str.clone(),
-            move |json: String| match serde_json::from_str::<T>(&json) {
-                Ok(parsed) => {
-                    bridge_for_callback.set_data(Some(parsed));
-                    bridge_for_callback.set_error(None);
-                }
-                Err(e) => {
-                    bridge_for_callback.set_error(Some(format!("Deserialization error: {e}")));
-                }
+            move |json: String| {
+                let _ = tx.send(json);
             },
         );
+
+        let mut data = data.clone();
+        let mut error = error.clone();
+        use_effect(move || {
+            while let Ok(json) = rx.try_recv() {
+                match serde_json::from_str::<T>(&json) {
+                    Ok(parsed) => {
+                        data.with_mut(|v| *v = Some(parsed));
+                        error.with_mut(|v| *v = None);
+                    }
+                    Err(e) => {
+                        error.with_mut(|v| *v = Some(format!("Deserialization error: {e}")));
+                    }
+                }
+            }
+        });
+
         let callback_id = bridge.callback_id();
         use_drop(move || {
             unregister_callback(&callback_id);
