@@ -12,6 +12,7 @@ use std::rc::Rc;
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 
+#[derive(Clone)]
 pub struct JsBridge<T: FromJs + Clone> {
     data: Signal<Option<T>>,
     error: Signal<Option<String>>,
@@ -64,7 +65,6 @@ impl<T: FromJs + Clone> JsBridge<T> {
         {
             // DesktopService::eval is synchronous, so we just call it
             self.desktop_service
-                .as_ref()
                 .eval(js_code)
                 .map_err(|e| format!("DesktopService eval error: {:?}", e))
         }
