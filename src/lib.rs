@@ -4,11 +4,6 @@ use dioxus_signals::{Readable, Writable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-use dioxus_desktop::{use_window, DesktopContext};
-#[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-use std::rc::Rc;
-
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 
@@ -17,8 +12,6 @@ pub struct JsBridge<T: FromJs + Clone> {
     data: Signal<Option<T>>,
     error: Signal<Option<String>>,
     callback_id: Signal<String>,
-    #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    desktop_service: Rc<dioxus_desktop::DesktopService>,
 }
 
 impl<T: FromJs + Clone> JsBridge<T> {
@@ -26,16 +19,11 @@ impl<T: FromJs + Clone> JsBridge<T> {
         data: Signal<Option<T>>,
         error: Signal<Option<String>>,
         callback_id: Signal<String>,
-        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))] desktop_service: Rc<
-            dioxus_desktop::DesktopService,
-        >,
     ) -> Self {
         Self {
             data,
             error,
             callback_id,
-            #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-            desktop_service,
         }
     }
 
@@ -55,35 +43,12 @@ impl<T: FromJs + Clone> JsBridge<T> {
         self.data.with_mut(|v| *v = data);
     }
 
-    /// Rust → JS: Evaluate JS code (via DesktopService for desktop, direct for web)
+    /// Rust → JS: Evaluate JS code (cross-platform via dioxus::html::document().eval)
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-        #[cfg(target_arch = "wasm32")]
-        {
-            web_sys::js_sys::eval(js_code).map_err(|e| format!("JS eval error: {:?}", e))?;
-            Ok(())
-        }
-        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-        {
-            (*self.desktop_service)
-                .eval(js_code)
-                .map_err(|e| format!("DesktopService eval error: {:?}", e))
-        }
-        #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
-        {
-            println!("Android JS eval: {}", js_code);
-            Ok(())
-        }
-        #[cfg(all(
-            not(target_arch = "wasm32"),
-            not(feature = "tauri"),
-            not(target_os = "android")
-        ))]
-        {
-            Err(format!(
-                "JS evaluation not supported on this platform. Code: {}",
-                js_code
-            ))
-        }
+        dioxus::document::eval(js_code)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("JS eval error: {:?}", e))
     }
 
     pub async fn send_to_js<S: Serialize>(&mut self, data: &S) -> Result<(), String> {
@@ -99,43 +64,9 @@ impl<T: FromJs + Clone> JsBridge<T> {
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
-mod android_bridge {
-    use super::*;
-    use once_cell::sync::Lazy;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-
-    static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
-        Lazy::new(|| Mutex::new(HashMap::new()));
-
-    pub fn register_callback<F: Fn(String) + Send + Sync + 'static>(id: String, cb: F) {
-        CALLBACKS.lock().unwrap().insert(id, Box::new(cb));
-    }
-    pub fn unregister_callback(id: &str) {
-        CALLBACKS.lock().unwrap().remove(id);
-    }
-    #[no_mangle]
-    pub extern "C" fn rust_js_bridge_callback(
-        callback_id: *const libc::c_char,
-        json: *const libc::c_char,
-    ) {
-        use std::ffi::CStr;
-        let callback_id = unsafe { CStr::from_ptr(callback_id) }
-            .to_string_lossy()
-            .to_string();
-        let json = unsafe { CStr::from_ptr(json) }
-            .to_string_lossy()
-            .to_string();
-        if let Some(cb) = CALLBACKS.lock().unwrap().get(&callback_id) {
-            cb(json);
-        }
-    }
-}
-
 pub fn use_js_bridge<T>() -> JsBridge<T>
 where
-    T: FromJs + Clone + Debug + 'static + Send + Sync,
+    T: FromJs + Clone + Debug + 'static,
 {
     #[cfg(all(not(feature = "uuid"), target_arch = "wasm32"))]
     use js_sys;
@@ -159,16 +90,7 @@ where
         }
     });
 
-    #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    let desktop_service = use_window();
-
-    let bridge = JsBridge::new(
-        data.clone(),
-        error.clone(),
-        callback_id.clone(),
-        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-        desktop_service,
-    );
+    let bridge = JsBridge::new(data.clone(), error.clone(), callback_id.clone());
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -218,42 +140,7 @@ where
         });
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    {
-        // For JS→Rust, use Tauri commands or a custom JS callback.
-        // See Tauri 2.x docs for details.
-    }
-
-    #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
-    {
-        use self::android_bridge::{register_callback, unregister_callback};
-        use std::sync::mpsc::channel;
-        let (tx, rx) = channel::<Result<T, String>>();
-        register_callback(callback_id(), move |json: String| {
-            let result =
-                serde_json::from_str::<T>(&json).map_err(|e| format!("Deserialization error: {e}"));
-            let _ = tx.send(result);
-        });
-        let mut data = data.clone();
-        let mut error = error.clone();
-        use_effect(move || {
-            while let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(parsed) => {
-                        data.with_mut(|v| *v = Some(parsed));
-                        error.with_mut(|v| *v = None);
-                    }
-                    Err(e) => {
-                        error.with_mut(|v| *v = Some(e));
-                    }
-                }
-            }
-        });
-        let callback_id = callback_id();
-        use_drop(move || {
-            unregister_callback(&callback_id);
-        });
-    }
+    // For desktop/mobile, you may need to set up the JS->Rust callback using Tauri commands or a custom JS interface.
 
     bridge
 }
