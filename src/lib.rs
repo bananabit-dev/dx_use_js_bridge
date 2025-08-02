@@ -236,9 +236,8 @@ where
                 let _ = tx.send(result);
             },
         );
-        // Instead of thread::spawn, poll the channel in a Dioxus effect
-        let data = data.clone();
-        let error = error.clone();
+        let mut data = data.clone();
+        let mut error = error.clone();
         use_effect(move || {
             while let Ok(result) = rx.try_recv() {
                 match result {
