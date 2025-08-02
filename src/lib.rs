@@ -1,7 +1,7 @@
 use dioxus::core::use_drop;
 use dioxus::prelude::*;
 use dioxus_signals::Writable;
-use dioxus_signalgs
+use dioxus_signals::Readable;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug; // Keep this import for the implementation
 
