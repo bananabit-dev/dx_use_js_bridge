@@ -1,8 +1,8 @@
 use dioxus::core::use_drop;
 use dioxus::prelude::*;
+use dioxus_signals::*;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use dioxus_signals::*;  // Keep this import for the implementation
+use std::fmt::Debug; // Keep this import for the implementation
 
 // Trait for types that can be safely deserialized from JS
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
@@ -11,8 +11,8 @@ impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 // The JsBridge struct is a handle to the bridge's state and functions.
 #[derive(Clone)]
 pub struct JsBridge<T: FromJs + Clone> {
-    data: Signal<Option<T>>,        // Made private
-    error: Signal<Option<String>>,  // Made private
+    data: Signal<Option<T>>,       // Made private
+    error: Signal<Option<String>>, // Made private
     callback_id: Signal<String>,
 }
 
@@ -40,12 +40,12 @@ impl<T: FromJs + Clone> JsBridge<T> {
     pub fn callback_id(&self) -> String {
         self.callback_id.read().clone()
     }
-    
+
     // New method to set error data
     pub fn set_error(&mut self, error: Option<String>) {
         self.error.set(error);
     }
-    
+
     // New method to set data
     pub fn set_data(&mut self, data: Option<T>) {
         self.data.set(data);
@@ -53,7 +53,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
 
     // Evaluates JavaScript code. This is a core capability of the bridge.
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-       // #[cfg(feature = "web")]
+        // #[cfg(feature = "web")]
         {
             web_sys::js_sys::eval(js_code).map_err(|e| format!("JS eval error: {:?}", e))?;
             return Ok(());
@@ -117,7 +117,7 @@ where
     let bridge = JsBridge::new(data, error, callback_id);
 
     // This effect runs once to set up the JS callback.
-    let bridge_for_effect = bridge.clone();
+    let mut bridge_for_effect = bridge.clone();
     use_effect(move || {
         //#[cfg(feature = "web")]
         {
@@ -126,14 +126,15 @@ where
             let callback_id_str = bridge_for_effect.callback_id();
 
             // Create and register the callback that JS will call.
-            // inside the effect that installs the JS callback
+            // Clone bridge_for_effect before moving it into the closure
+            let mut bridge_for_callback = bridge_for_effect.clone();
             let callback = Closure::<dyn FnMut(JsValue)>::new(move |val: JsValue| {
                 // Fast path: try to deserialize the value directly
                 match serde_wasm_bindgen::from_value::<T>(val.clone()) {
                     Ok(parsed) => {
-                        // Use the new method instead of direct access
-                        bridge_for_effect.set_data(Some(parsed));
-                        bridge_for_effect.set_error(None);
+                        // Use the cloned bridge in the closure
+                        bridge_for_callback.set_data(Some(parsed));
+                        bridge_for_callback.set_error(None);
                         return;
                     }
                     Err(_) => {} // fall through – might be a JSON string
@@ -144,14 +145,17 @@ where
                 if let Some(s) = val.as_string() {
                     match serde_json::from_str::<T>(&s) {
                         Ok(parsed) => {
-                            bridge_for_effect.set_data(Some(parsed));
-                            bridge_for_effect.set_error(None);
+                            bridge_for_callback.set_data(Some(parsed));
+                            bridge_for_callback.set_error(None);
                             return;
                         }
-                        Err(e) => bridge_for_effect.set_error(Some(format!("Deserialization error: {e}"))),
+                        Err(e) => bridge_for_callback
+                            .set_error(Some(format!("Deserialization error: {e}"))),
                     }
                 } else {
-                    bridge_for_effect.set_error(Some("Unsupported value type sent over JsBridge".to_string()));
+                    bridge_for_callback.set_error(Some(
+                        "Unsupported value type sent over JsBridge".to_string(),
+                    ));
                 }
             });
 
