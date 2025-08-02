@@ -2,9 +2,7 @@ use dioxus::core::use_drop;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use dioxus::signals::Writable;
-use dioxus::signals::Readable;
-
+// Removed the explicit imports for Writable and Readable
 
 // Trait for types that can be safely deserialized from JS
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
