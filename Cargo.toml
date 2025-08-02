@@ -20,13 +20,11 @@ wasm-bindgen = { version = "0.2", optional = true }
 web-sys = { version = "0.3", optional = true }
 js-sys = { version = "0.3", optional = true }
 
-# Tauri 2.x (desktop & android)
-tauri = { version = "2.0.0-beta.7", optional = true }
+
 
 [features]
 default = []
 web = ["wasm-bindgen", "web-sys", "js-sys"]
-tauri = ["dep:tauri"]
 android = ["dep:libc"]
 
 [lib]
