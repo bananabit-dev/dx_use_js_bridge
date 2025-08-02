@@ -5,19 +5,20 @@ use std::fmt::Debug;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
 use dioxus_desktop::use_window;
+use dioxus_hooks::use_drop;
 #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-use dioxus_desktop::DesktopService;
+use std::rc::Rc;
 
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 
-#[derive(Clone)]
+#[derive()]
 pub struct JsBridge<T: FromJs + Clone> {
     data: Signal<Option<T>>,
     error: Signal<Option<String>>,
     callback_id: Signal<String>,
     #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    desktop_service: DesktopService,
+    desktop_service: Rc<dioxus_desktop::DesktopService>,
 }
 
 impl<T: FromJs + Clone> JsBridge<T> {
@@ -25,8 +26,9 @@ impl<T: FromJs + Clone> JsBridge<T> {
         data: Signal<Option<T>>,
         error: Signal<Option<String>>,
         callback_id: Signal<String>,
-        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-        desktop_service: DesktopService,
+        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))] desktop_service: Rc<
+            dioxus_desktop::DesktopService,
+        >,
     ) -> Self {
         Self {
             data,
@@ -53,19 +55,19 @@ impl<T: FromJs + Clone> JsBridge<T> {
         self.data.with_mut(|v| *v = data);
     }
 
-    /// Rust → JS: Evaluate JS code (via event for Tauri 2.x, direct for web)
+    /// Rust → JS: Evaluate JS code (via DesktopService for desktop, direct for web)
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
         #[cfg(target_arch = "wasm32")]
         {
-            web_sys::js_sys::eval(js_code)
-                .map_err(|e| format!("JS eval error: {:?}", e))?;
+            web_sys::js_sys::eval(js_code).map_err(|e| format!("JS eval error: {:?}", e))?;
             Ok(())
         }
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
         {
+            // DesktopService::eval is synchronous, so we just call it
             self.desktop_service
-                .emit("dioxus-eval-js", js_code.to_string())
-                .map_err(|e| format!("Tauri emit error: {:?}", e))
+                .eval(js_code)
+                .map_err(|e| format!("DesktopService eval error: {:?}", e))
         }
         #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
         {
@@ -101,9 +103,9 @@ impl<T: FromJs + Clone> JsBridge<T> {
 #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
 mod android_bridge {
     use super::*;
+    use once_cell::sync::Lazy;
     use std::collections::HashMap;
     use std::sync::Mutex;
-    use once_cell::sync::Lazy;
 
     static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
         Lazy::new(|| Mutex::new(HashMap::new()));
@@ -115,10 +117,17 @@ mod android_bridge {
         CALLBACKS.lock().unwrap().remove(id);
     }
     #[no_mangle]
-    pub extern "C" fn rust_js_bridge_callback(callback_id: *const libc::c_char, json: *const libc::c_char) {
+    pub extern "C" fn rust_js_bridge_callback(
+        callback_id: *const libc::c_char,
+        json: *const libc::c_char,
+    ) {
         use std::ffi::CStr;
-        let callback_id = unsafe { CStr::from_ptr(callback_id) }.to_string_lossy().to_string();
-        let json = unsafe { CStr::from_ptr(json) }.to_string_lossy().to_string();
+        let callback_id = unsafe { CStr::from_ptr(callback_id) }
+            .to_string_lossy()
+            .to_string();
+        let json = unsafe { CStr::from_ptr(json) }
+            .to_string_lossy()
+            .to_string();
         if let Some(cb) = CALLBACKS.lock().unwrap().get(&callback_id) {
             cb(json);
         }
@@ -204,8 +213,7 @@ where
         let bridge_for_destroy = bridge.clone();
         use_drop(move || {
             if let Some(window) = web_sys::window() {
-                let callback_name =
-                    format!("__dioxus_bridge_{}", bridge_for_destroy.callback_id());
+                let callback_name = format!("__dioxus_bridge_{}", bridge_for_destroy.callback_id());
                 let _ = web_sys::js_sys::Reflect::delete_property(&window, &callback_name.into());
             }
         });
@@ -213,25 +221,15 @@ where
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
     {
-        use std::sync::{Arc, Mutex};
-        let mut bridge_for_callback = bridge.clone();
-        let callback_id = bridge.callback_id();
-        let data_signal = Arc::new(Mutex::new(bridge_for_callback.clone()));
-        bridge.desktop_service.listen("dioxus-js-bridge", move |event| {
-            if let Some(payload) = event.payload() {
-                match serde_json::from_str::<T>(payload) {
-                    Ok(parsed) => {
-                        let mut bridge = data_signal.lock().unwrap();
-                        bridge.set_data(Some(parsed));
-                        bridge.set_error(None);
-                    }
-                    Err(e) => {
-                        let mut bridge = data_signal.lock().unwrap();
-                        bridge.set_error(Some(format!("Deserialization error: {e}")));
-                    }
-                }
-            }
-        });
+        // For Tauri 2.x, use Tauri's event system in your main.rs and JS frontend.
+        // Here, you can use DesktopService::eval for Rust->JS, and Tauri commands for JS->Rust.
+        // See Tauri 2.x docs for details.
+        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
+        pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
+            self.desktop_service
+                .eval(js_code)
+                .map_err(|e| format!("DesktopService eval error: {:?}", e))
+        }
     }
 
     #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
@@ -239,8 +237,9 @@ where
         use self::android_bridge::{register_callback, unregister_callback};
         let mut bridge_for_callback = bridge.clone();
         let callback_id = bridge.callback_id();
-        register_callback(callback_id.clone(), move |json: String| {
-            match serde_json::from_str::<T>(&json) {
+        register_callback(
+            callback_id.clone(),
+            move |json: String| match serde_json::from_str::<T>(&json) {
                 Ok(parsed) => {
                     bridge_for_callback.set_data(Some(parsed));
                     bridge_for_callback.set_error(None);
@@ -248,8 +247,8 @@ where
                 Err(e) => {
                     bridge_for_callback.set_error(Some(format!("Deserialization error: {e}")));
                 }
-            }
-        });
+            },
+        );
         let callback_id = bridge.callback_id();
         use_drop(move || {
             unregister_callback(&callback_id);
