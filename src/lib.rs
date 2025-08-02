@@ -134,10 +134,7 @@ mod android_bridge {
 
 pub fn use_js_bridge<T>() -> JsBridge<T>
 where
-    T: FromJs + Clone + Debug + 'static
-    // For Android, add Send + Sync bounds:
-    #[cfg_attr(all(not(target_arch = "wasm32"), target_os = "android"), allow(unused))]
-    + Send + Sync,
+    T: FromJs + Clone + Debug + 'static + Send + Sync,
 {
     #[cfg(all(not(feature = "uuid"), target_arch = "wasm32"))]
     use js_sys;
