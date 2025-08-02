@@ -1,5 +1,4 @@
 use dioxus::prelude::*;
-use dioxus_hooks::use_drop;
 use dioxus_signals::{Readable, Writable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -25,9 +24,8 @@ impl<T: FromJs + Clone> JsBridge<T> {
         data: Signal<Option<T>>,
         error: Signal<Option<String>>,
         callback_id: Signal<String>,
-        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))] desktop_service: Rc<
-            dioxus_desktop::DesktopService,
-        >,
+        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
+        desktop_service: Rc<dioxus_desktop::DesktopService>,
     ) -> Self {
         Self {
             data,
@@ -63,7 +61,9 @@ impl<T: FromJs + Clone> JsBridge<T> {
         }
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
         {
+            // DesktopService::eval is synchronous, so we just call it
             self.desktop_service
+                .as_ref()
                 .eval(js_code)
                 .map_err(|e| format!("DesktopService eval error: {:?}", e))
         }
@@ -98,7 +98,39 @@ impl<T: FromJs + Clone> JsBridge<T> {
     }
 }
 
-// ... android_bridge as before ...
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+mod android_bridge {
+    use super::*;
+    use once_cell::sync::Lazy;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
+        Lazy::new(|| Mutex::new(HashMap::new()));
+
+    pub fn register_callback<F: Fn(String) + Send + Sync + 'static>(id: String, cb: F) {
+        CALLBACKS.lock().unwrap().insert(id, Box::new(cb));
+    }
+    pub fn unregister_callback(id: &str) {
+        CALLBACKS.lock().unwrap().remove(id);
+    }
+    #[no_mangle]
+    pub extern "C" fn rust_js_bridge_callback(
+        callback_id: *const libc::c_char,
+        json: *const libc::c_char,
+    ) {
+        use std::ffi::CStr;
+        let callback_id = unsafe { CStr::from_ptr(callback_id) }
+            .to_string_lossy()
+            .to_string();
+        let json = unsafe { CStr::from_ptr(json) }
+            .to_string_lossy()
+            .to_string();
+        if let Some(cb) = CALLBACKS.lock().unwrap().get(&callback_id) {
+            cb(json);
+        }
+    }
+}
 
 pub fn use_js_bridge<T>() -> JsBridge<T>
 where
@@ -189,11 +221,6 @@ where
     {
         // For JS→Rust, use Tauri commands or a custom JS callback.
         // See Tauri 2.x docs for details.
-        pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-            self.desktop_service
-                .eval(js_code)
-                .map_err(|e| format!("DesktopService eval error: {:?}", e))
-        }
     }
 
     #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
