@@ -1,18 +1,13 @@
-use dioxus::core::use_drop;
 use dioxus::prelude::*;
-use dioxus::signals::Readable;
-use dioxus::signals::Writable;
+use dioxus_signals::{Readable, Writable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
 use dioxus_desktop::use_window;
 #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-use tauri::Window;
-#[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-use tauri::Manager;
+use dioxus_desktop::DesktopService;
 
-// Trait for types that can be safely deserialized from JS
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 
@@ -22,7 +17,7 @@ pub struct JsBridge<T: FromJs + Clone> {
     error: Signal<Option<String>>,
     callback_id: Signal<String>,
     #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    tauri_window: Window,
+    desktop_service: DesktopService,
 }
 
 impl<T: FromJs + Clone> JsBridge<T> {
@@ -31,66 +26,52 @@ impl<T: FromJs + Clone> JsBridge<T> {
         error: Signal<Option<String>>,
         callback_id: Signal<String>,
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-        tauri_window: Window,
+        desktop_service: DesktopService,
     ) -> Self {
         Self {
             data,
             error,
             callback_id,
             #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-            tauri_window,
+            desktop_service,
         }
     }
 
     pub fn get_data(&self) -> Option<T> {
         self.data.read().clone()
     }
-
     pub fn get_error(&self) -> Option<String> {
         self.error.read().clone()
     }
-
     pub fn callback_id(&self) -> String {
         self.callback_id.read().clone()
     }
-
     pub fn set_error(&mut self, error: Option<String>) {
-        self.error.with_mut(|v| {
-            *v = error;
-        });
+        self.error.with_mut(|v| *v = error);
     }
-
     pub fn set_data(&mut self, data: Option<T>) {
-        self.data.with_mut(|v| {
-            *v = data;
-        });
+        self.data.with_mut(|v| *v = data);
     }
 
-    /// Evaluates JavaScript code.
+    /// Rust → JS: Evaluate JS code (via event for Tauri 2.x, direct for web)
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-        // --- Web (wasm32) ---
         #[cfg(target_arch = "wasm32")]
         {
             web_sys::js_sys::eval(js_code)
                 .map_err(|e| format!("JS eval error: {:?}", e))?;
             Ok(())
         }
-        // --- Tauri (desktop) ---
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
         {
-            self.tauri_window
-                .eval(js_code)
-                .map_err(|e| format!("Tauri JS eval error: {:?}", e))
+            self.desktop_service
+                .emit("dioxus-eval-js", js_code.to_string())
+                .map_err(|e| format!("Tauri emit error: {:?}", e))
         }
-        // --- Android (native) ---
         #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
         {
-            // You must call the Rust callback from Java/Kotlin using JNI.
-            // This is a stub for now.
             println!("Android JS eval: {}", js_code);
             Ok(())
         }
-        // --- Native fallback (no-op) ---
         #[cfg(all(
             not(target_arch = "wasm32"),
             not(feature = "tauri"),
@@ -104,18 +85,15 @@ impl<T: FromJs + Clone> JsBridge<T> {
         }
     }
 
-    /// Sends a serializable value to the JavaScript side.
     pub async fn send_to_js<S: Serialize>(&mut self, data: &S) -> Result<(), String> {
         let json_data =
             serde_json::to_string(data).map_err(|e| format!("Serialization error: {}", e))?;
-
         let js_code = format!(
             "if (window.__dioxus_bridge_{}) {{ window.__dioxus_bridge_{}({}); }}",
             self.callback_id(),
             self.callback_id(),
             json_data
         );
-
         self.eval(&js_code).await
     }
 }
@@ -127,19 +105,15 @@ mod android_bridge {
     use std::sync::Mutex;
     use once_cell::sync::Lazy;
 
-    // Global registry for callbacks
     static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
         Lazy::new(|| Mutex::new(HashMap::new()));
 
     pub fn register_callback<F: Fn(String) + Send + Sync + 'static>(id: String, cb: F) {
         CALLBACKS.lock().unwrap().insert(id, Box::new(cb));
     }
-
     pub fn unregister_callback(id: &str) {
         CALLBACKS.lock().unwrap().remove(id);
     }
-
-    /// Call this from Java/Kotlin via JNI, passing the callback_id and the JSON string.
     #[no_mangle]
     pub extern "C" fn rust_js_bridge_callback(callback_id: *const libc::c_char, json: *const libc::c_char) {
         use std::ffi::CStr;
@@ -151,7 +125,6 @@ mod android_bridge {
     }
 }
 
-/// A custom Dioxus hook for two-way communication with JavaScript.
 pub fn use_js_bridge<T>() -> JsBridge<T>
 where
     T: FromJs + Clone + Debug + 'static,
@@ -167,7 +140,6 @@ where
         {
             uuid::Uuid::new_v4().to_string().replace("-", "_")
         }
-
         #[cfg(all(not(feature = "uuid"), target_arch = "wasm32"))]
         {
             let random_part: String = js_sys::Math::random().to_string().chars().skip(2).collect();
@@ -179,19 +151,17 @@ where
         }
     });
 
-    // --- Tauri: get window from Dioxus context ---
     #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    let tauri_window = use_window();
+    let desktop_service = use_window();
 
     let bridge = JsBridge::new(
         data,
         error,
         callback_id,
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-        tauri_window,
+        desktop_service,
     );
 
-    // --- Web (wasm32): Set up JS callback ---
     #[cfg(target_arch = "wasm32")]
     {
         let mut bridge_for_effect = bridge.clone();
@@ -199,7 +169,6 @@ where
             use wasm_bindgen::{prelude::Closure, JsValue};
             use web_sys::js_sys;
             let callback_id_str = bridge_for_effect.callback_id();
-
             let mut bridge_for_callback = bridge_for_effect.clone();
             let callback = Closure::<dyn FnMut(JsValue)>::new(move |val: JsValue| {
                 match serde_wasm_bindgen::from_value::<T>(val.clone()) {
@@ -226,14 +195,12 @@ where
                     ));
                 }
             });
-
             let window = web_sys::window().expect("no global window");
             let callback_name = format!("__dioxus_bridge_{}", callback_id_str);
             js_sys::Reflect::set(&window, &callback_name.into(), callback.as_ref())
                 .expect("failed to set callback");
             callback.forget();
         });
-
         let bridge_for_destroy = bridge.clone();
         use_drop(move || {
             if let Some(window) = web_sys::window() {
@@ -244,34 +211,29 @@ where
         });
     }
 
-    // --- Tauri (desktop): Set up JS->Rust callback via Tauri events ---
     #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
     {
-        use std::sync::Arc;
-        use std::sync::Mutex;
-
+        use std::sync::{Arc, Mutex};
         let mut bridge_for_callback = bridge.clone();
         let callback_id = bridge.callback_id();
-
-        // Listen for a Tauri event with the callback_id as the event name
-        let window = bridge.tauri_window.clone();
         let data_signal = Arc::new(Mutex::new(bridge_for_callback.clone()));
-        window.listen(callback_id.clone(), move |event| {
-            let mut bridge = data_signal.lock().unwrap();
-            match serde_json::from_value::<T>(event.payload().unwrap_or("").into()) {
-                Ok(parsed) => {
-                    bridge.set_data(Some(parsed));
-                    bridge.set_error(None);
-                }
-                Err(e) => {
-                    bridge.set_error(Some(format!("Deserialization error: {e}")));
+        bridge.desktop_service.listen("dioxus-js-bridge", move |event| {
+            if let Some(payload) = event.payload() {
+                match serde_json::from_str::<T>(payload) {
+                    Ok(parsed) => {
+                        let mut bridge = data_signal.lock().unwrap();
+                        bridge.set_data(Some(parsed));
+                        bridge.set_error(None);
+                    }
+                    Err(e) => {
+                        let mut bridge = data_signal.lock().unwrap();
+                        bridge.set_error(Some(format!("Deserialization error: {e}")));
+                    }
                 }
             }
         });
-        // No drop needed: Tauri events are automatically cleaned up with the window.
     }
 
-    // --- Android: Set up JS->Rust callback via WebView bridge ---
     #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
     {
         use self::android_bridge::{register_callback, unregister_callback};
