@@ -12,11 +12,11 @@ once_cell = "1.19"
 uuid = { version = "1.8", optional = true }
 chrono = { version = "0.4", features = ["serde"] }
 
-# Web - make these optional but enable automatically for wasm targets
-wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", optional = true }
-js-sys = { version = "0.3", optional = true }
-serde-wasm-bindgen = { version = "0.6", optional = true }
+# Web - make these available for all targets but only used conditionally in code
+wasm-bindgen = { version = "0.2", optional = false }
+web-sys = { version = "0.3", optional = false }
+js-sys = { version = "0.3", optional = false }
+serde-wasm-bindgen = { version = "0.6", optional = false }
 
 [target.'cfg(target_os = "android")'.dependencies]
 libc = "0.2"
@@ -26,14 +26,7 @@ dioxus-desktop = "0.7.0-alpha.3"
 
 [features]
 default = []
-web = ["wasm-bindgen", "web-sys", "js-sys", "serde-wasm-bindgen"]
-android = []
-
-# Automatically enable features based on target
-[target.'cfg(target_arch = "wasm32")'.features]
 web = []
-
-[target.'cfg(target_os = "android")'.features]
 android = []
 
 [lib]

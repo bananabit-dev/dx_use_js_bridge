@@ -4,6 +4,7 @@ use dioxus_signals::{Readable, Writable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
+// Only import wasm-specific modules when targeting wasm
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{prelude::Closure, JsValue};
 #[cfg(target_arch = "wasm32")]
