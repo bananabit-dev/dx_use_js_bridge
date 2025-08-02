@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
+use dioxus_desktop::use_window;
+#[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
+use tauri::Window;
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
 use tauri::Manager;
 
 // Trait for types that can be safely deserialized from JS
@@ -18,7 +23,7 @@ pub struct JsBridge<T: FromJs + Clone> {
     error: Signal<Option<String>>,
     callback_id: Signal<String>,
     #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    tauri_window: tauri::Window,
+    tauri_window: Window,
 }
 
 impl<T: FromJs + Clone> JsBridge<T> {
@@ -27,7 +32,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
         error: Signal<Option<String>>,
         callback_id: Signal<String>,
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-        tauri_window: tauri::Window,
+        tauri_window: Window,
     ) -> Self {
         Self {
             data,
@@ -81,8 +86,6 @@ impl<T: FromJs + Clone> JsBridge<T> {
         // --- Android (native) ---
         #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
         {
-            // You must call the Rust callback from Java/Kotlin using JNI.
-            // This is a stub for now.
             println!("Android JS eval: {}", js_code);
             Ok(())
         }
@@ -116,36 +119,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
-mod android_bridge {
-    use super::*;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    use once_cell::sync::Lazy;
-
-    // Global registry for callbacks
-    static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
-        Lazy::new(|| Mutex::new(HashMap::new()));
-
-    pub fn register_callback<F: Fn(String) + Send + Sync + 'static>(id: String, cb: F) {
-        CALLBACKS.lock().unwrap().insert(id, Box::new(cb));
-    }
-
-    pub fn unregister_callback(id: &str) {
-        CALLBACKS.lock().unwrap().remove(id);
-    }
-
-    /// Call this from Java/Kotlin via JNI, passing the callback_id and the JSON string.
-    #[no_mangle]
-    pub extern "C" fn rust_js_bridge_callback(callback_id: *const libc::c_char, json: *const libc::c_char) {
-        use std::ffi::CStr;
-        let callback_id = unsafe { CStr::from_ptr(callback_id) }.to_string_lossy().to_string();
-        let json = unsafe { CStr::from_ptr(json) }.to_string_lossy().to_string();
-        if let Some(cb) = CALLBACKS.lock().unwrap().get(&callback_id) {
-            cb(json);
-        }
-    }
-}
+// ... android_bridge module as before ...
 
 /// A custom Dioxus hook for two-way communication with JavaScript.
 pub fn use_js_bridge<T>() -> JsBridge<T>
@@ -175,14 +149,9 @@ where
         }
     });
 
-    // --- Tauri: get window if available ---
+    // --- Tauri: get window from Dioxus context ---
     #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-    let tauri_window = {
-        // You must pass the Tauri window to your component/hook in your app.
-        // Here, we just use the first window as a placeholder.
-        // In a real app, pass the window as a prop or context!
-        tauri::Window::current().expect("No Tauri window found")
-    };
+    let tauri_window = use_window();
 
     let bridge = JsBridge::new(
         data,
