@@ -2,7 +2,7 @@ use dioxus::core::use_drop;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-// Removed the explicit imports for Writable and Readable
+use dioxus_signals::*;  // Keep this import for the implementation
 
 // Trait for types that can be safely deserialized from JS
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
@@ -11,8 +11,8 @@ impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 // The JsBridge struct is a handle to the bridge's state and functions.
 #[derive(Clone)]
 pub struct JsBridge<T: FromJs + Clone> {
-    pub data: Signal<Option<T>>,
-    pub error: Signal<Option<String>>,
+    data: Signal<Option<T>>,        // Made private
+    error: Signal<Option<String>>,  // Made private
     callback_id: Signal<String>,
 }
 
@@ -39,6 +39,16 @@ impl<T: FromJs + Clone> JsBridge<T> {
 
     pub fn callback_id(&self) -> String {
         self.callback_id.read().clone()
+    }
+    
+    // New method to set error data
+    pub fn set_error(&mut self, error: Option<String>) {
+        self.error.set(error);
+    }
+    
+    // New method to set data
+    pub fn set_data(&mut self, data: Option<T>) {
+        self.data.set(data);
     }
 
     // Evaluates JavaScript code. This is a core capability of the bridge.
@@ -121,8 +131,9 @@ where
                 // Fast path: try to deserialize the value directly
                 match serde_wasm_bindgen::from_value::<T>(val.clone()) {
                     Ok(parsed) => {
-                        *data.write() = Some(parsed);
-                        *error.write() = None;
+                        // Use the new method instead of direct access
+                        bridge_for_effect.set_data(Some(parsed));
+                        bridge_for_effect.set_error(None);
                         return;
                     }
                     Err(_) => {} // fall through – might be a JSON string
@@ -133,14 +144,14 @@ where
                 if let Some(s) = val.as_string() {
                     match serde_json::from_str::<T>(&s) {
                         Ok(parsed) => {
-                            *data.write() = Some(parsed);
-                            *error.write() = None;
+                            bridge_for_effect.set_data(Some(parsed));
+                            bridge_for_effect.set_error(None);
                             return;
                         }
-                        Err(e) => *error.write() = Some(format!("Deserialization error: {e}")),
+                        Err(e) => bridge_for_effect.set_error(Some(format!("Deserialization error: {e}"))),
                     }
                 } else {
-                    *error.write() = Some("Unsupported value type sent over JsBridge".to_string());
+                    bridge_for_effect.set_error(Some("Unsupported value type sent over JsBridge".to_string()));
                 }
             });
 
