@@ -26,8 +26,9 @@ impl<T: FromJs + Clone> JsBridge<T> {
         data: Signal<Option<T>>,
         error: Signal<Option<String>>,
         callback_id: Signal<String>,
-        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-        desktop_service: Rc<dioxus_desktop::DesktopService>,
+        #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))] desktop_service: Rc<
+            dioxus_desktop::DesktopService,
+        >,
     ) -> Self {
         Self {
             data,
@@ -63,8 +64,9 @@ impl<T: FromJs + Clone> JsBridge<T> {
         }
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
         {
-            // FIX: Deref Rc to call eval
-            self.desktop_service.deref().eval(js_code)
+            (*self.desktop_service)
+                .eval(js_code)
+                .map_err(|e| format!("DesktopService eval error: {:?}", e))
         }
         #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
         {
@@ -227,14 +229,11 @@ where
         use self::android_bridge::{register_callback, unregister_callback};
         use std::sync::mpsc::channel;
         let (tx, rx) = channel::<Result<T, String>>();
-        register_callback(
-            callback_id(),
-            move |json: String| {
-                let result = serde_json::from_str::<T>(&json)
-                    .map_err(|e| format!("Deserialization error: {e}"));
-                let _ = tx.send(result);
-            },
-        );
+        register_callback(callback_id(), move |json: String| {
+            let result =
+                serde_json::from_str::<T>(&json).map_err(|e| format!("Deserialization error: {e}"));
+            let _ = tx.send(result);
+        });
         let mut data = data.clone();
         let mut error = error.clone();
         use_effect(move || {
