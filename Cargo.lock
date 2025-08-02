@@ -689,6 +689,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "dioxus",
+ "dioxus-signals",
  "js-sys",
  "serde",
  "serde-wasm-bindgen",
