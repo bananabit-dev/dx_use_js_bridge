@@ -1,7 +1,7 @@
 use dioxus::core::use_drop;
 use dioxus::prelude::*;
-use dioxus_signals::Writable;
 use dioxus_signals::Readable;
+use dioxus_signals::Writable;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug; // Keep this import for the implementation
 
@@ -42,14 +42,16 @@ impl<T: FromJs + Clone> JsBridge<T> {
         self.callback_id.read().clone()
     }
 
-    // New method to set error data
     pub fn set_error(&mut self, error: Option<String>) {
-        self.error.set(error);
+        self.error.with_mut(|v| {
+            *v = error;
+        });
     }
 
-    // New method to set data
     pub fn set_data(&mut self, data: Option<T>) {
-        self.data.set(data);
+        self.data.with_mut(|v| {
+            *v = data;
+        });
     }
 
     // Evaluates JavaScript code. This is a core capability of the bridge.
