@@ -54,8 +54,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
 
     /// Rust → JS: Evaluate JS code (cross-platform via dioxus::html::document().eval)
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-        dioxus::document::
-            eval(js_code)
+        dioxus::document::eval(js_code)
             .await
             .map(|_| ())
             .map_err(|e| format!("JS eval error: {:?}", e))
@@ -150,7 +149,8 @@ where
                     }
                     Err(_) => {}
                 }
-                if let Some(s) = val.as_string() {
+                // Fixed: Use as_string() correctly
+                if let Ok(s) = val.as_string() {
                     match serde_json::from_str::<T>(&s) {
                         Ok(parsed) => {
                             bridge_for_callback.set_data(Some(parsed));
