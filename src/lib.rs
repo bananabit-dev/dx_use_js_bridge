@@ -1,6 +1,7 @@
 use dioxus::core::use_drop;
 use dioxus::prelude::*;
-use dioxus_signals::*;
+use dioxus_signals::Writable;
+use dioxus_signalgs
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug; // Keep this import for the implementation
 
@@ -11,8 +12,8 @@ impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 // The JsBridge struct is a handle to the bridge's state and functions.
 #[derive(Clone)]
 pub struct JsBridge<T: FromJs + Clone> {
-    data: Signal<Option<T>>,       // Made private
-    error: Signal<Option<String>>, // Made private
+    pub data: Signal<Option<T>>,       // Made private
+    pub error: Signal<Option<String>>, // Made private
     callback_id: Signal<String>,
 }
 
