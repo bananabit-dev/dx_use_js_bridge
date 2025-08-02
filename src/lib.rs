@@ -45,7 +45,8 @@ impl<T: FromJs + Clone> JsBridge<T> {
 
     /// Rust → JS: Evaluate JS code (cross-platform via dioxus::html::document().eval)
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-        dioxus::document::eval(js_code)
+        dioxus::document::
+            eval(js_code)
             .await
             .map(|_| ())
             .map_err(|e| format!("JS eval error: {:?}", e))
@@ -61,6 +62,41 @@ impl<T: FromJs + Clone> JsBridge<T> {
             json_data
         );
         self.eval(&js_code).await
+    }
+}
+
+#[cfg(target_os = "android")]
+mod android_bridge {
+    use super::*;
+    use once_cell::sync::Lazy;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
+        Lazy::new(|| Mutex::new(HashMap::new()));
+
+    pub fn register_callback<F: Fn(String) + Send + Sync + 'static>(id: String, cb: F) {
+        CALLBACKS.lock().unwrap().insert(id, Box::new(cb));
+    }
+    pub fn unregister_callback(id: &str) {
+        CALLBACKS.lock().unwrap().remove(id);
+    }
+    /// Call this from Java/Kotlin via JNI, passing the callback_id and the JSON string.
+    #[no_mangle]
+    pub extern "C" fn rust_js_bridge_callback(
+        callback_id: *const libc::c_char,
+        json: *const libc::c_char,
+    ) {
+        use std::ffi::CStr;
+        let callback_id = unsafe { CStr::from_ptr(callback_id) }
+            .to_string_lossy()
+            .to_string();
+        let json = unsafe { CStr::from_ptr(json) }
+            .to_string_lossy()
+            .to_string();
+        if let Some(cb) = CALLBACKS.lock().unwrap().get(&callback_id) {
+            cb(json);
+        }
     }
 }
 
@@ -92,55 +128,97 @@ where
 
     let bridge = JsBridge::new(data.clone(), error.clone(), callback_id.clone());
 
-    #[cfg(target_arch = "wasm32")]
+    // --- Web/Desktop: Register JS callback ---
+    #[cfg(any(target_arch = "wasm32", feature = "desktop"))]
     {
         let mut bridge_for_effect = bridge.clone();
         use_effect(move || {
-            use wasm_bindgen::{prelude::Closure, JsValue};
-            use web_sys::js_sys;
-            let callback_id_str = bridge_for_effect.callback_id();
-            let mut bridge_for_callback = bridge_for_effect.clone();
-            let callback = Closure::<dyn FnMut(JsValue)>::new(move |val: JsValue| {
-                match serde_wasm_bindgen::from_value::<T>(val.clone()) {
-                    Ok(parsed) => {
-                        bridge_for_callback.set_data(Some(parsed));
-                        bridge_for_callback.set_error(None);
-                        return;
-                    }
-                    Err(_) => {}
-                }
-                if let Some(s) = val.as_string() {
-                    match serde_json::from_str::<T>(&s) {
+            #[cfg(target_arch = "wasm32")]
+            {
+                use wasm_bindgen::{prelude::Closure, JsValue};
+                use web_sys::js_sys;
+                let callback_id_str = bridge_for_effect.callback_id();
+                let mut bridge_for_callback = bridge_for_effect.clone();
+                let callback = Closure::<dyn FnMut(JsValue)>::new(move |val: JsValue| {
+                    match serde_wasm_bindgen::from_value::<T>(val.clone()) {
                         Ok(parsed) => {
                             bridge_for_callback.set_data(Some(parsed));
                             bridge_for_callback.set_error(None);
                             return;
                         }
-                        Err(e) => bridge_for_callback
-                            .set_error(Some(format!("Deserialization error: {e}"))),
+                        Err(_) => {}
                     }
-                } else {
-                    bridge_for_callback.set_error(Some(
-                        "Unsupported value type sent over JsBridge".to_string(),
-                    ));
-                }
-            });
-            let window = web_sys::window().expect("no global window");
-            let callback_name = format!("__dioxus_bridge_{}", callback_id_str);
-            js_sys::Reflect::set(&window, &callback_name.into(), callback.as_ref())
-                .expect("failed to set callback");
-            callback.forget();
-        });
-        let bridge_for_destroy = bridge.clone();
-        use_drop(move || {
-            if let Some(window) = web_sys::window() {
-                let callback_name = format!("__dioxus_bridge_{}", bridge_for_destroy.callback_id());
-                let _ = web_sys::js_sys::Reflect::delete_property(&window, &callback_name.into());
+                    if let Some(s) = val.as_string() {
+                        match serde_json::from_str::<T>(&s) {
+                            Ok(parsed) => {
+                                bridge_for_callback.set_data(Some(parsed));
+                                bridge_for_callback.set_error(None);
+                                return;
+                            }
+                            Err(e) => bridge_for_callback
+                                .set_error(Some(format!("Deserialization error: {e}"))),
+                        }
+                    } else {
+                        bridge_for_callback.set_error(Some(
+                            "Unsupported value type sent over JsBridge".to_string(),
+                        ));
+                    }
+                });
+                let window = web_sys::window().expect("no global window");
+                let callback_name = format!("__dioxus_bridge_{}", callback_id_str);
+                js_sys::Reflect::set(&window, &callback_name.into(), callback.as_ref())
+                    .expect("failed to set callback");
+                callback.forget();
+            }
+            #[cfg(feature = "desktop")]
+            {
+                // For Dioxus Desktop, inject a JS callback in your HTML or via eval.
+                // Example: in your index.html, add:
+                // <script>
+                // window.__dioxus_bridge_callback = function(callbackId, payload) {
+                //   if (window["__dioxus_bridge_" + callbackId]) {
+                //     window["__dioxus_bridge_" + callbackId](payload);
+                //   }
+                // };
+                // </script>
             }
         });
+        #[cfg(target_arch = "wasm32")]
+        {
+            let bridge_for_destroy = bridge.clone();
+            use_drop(move || {
+                if let Some(window) = web_sys::window() {
+                    let callback_name =
+                        format!("__dioxus_bridge_{}", bridge_for_destroy.callback_id());
+                    let _ = web_sys::js_sys::Reflect::delete_property(&window, &callback_name.into());
+                }
+            });
+        }
     }
 
-    // For desktop/mobile, you may need to set up the JS->Rust callback using Tauri commands or a custom JS interface.
+    // --- Android: Register JNI callback ---
+    #[cfg(target_os = "android")]
+    {
+        use self::android_bridge::{register_callback, unregister_callback};
+        let mut bridge_for_callback = bridge.clone();
+        let callback_id_str = bridge.callback_id();
+        register_callback(
+            callback_id_str.clone(),
+            move |json: String| match serde_json::from_str::<T>(&json) {
+                Ok(parsed) => {
+                    bridge_for_callback.set_data(Some(parsed));
+                    bridge_for_callback.set_error(None);
+                }
+                Err(e) => {
+                    bridge_for_callback.set_error(Some(format!("Deserialization error: {e}")));
+                }
+            },
+        );
+        let callback_id = bridge.callback_id();
+        use_drop(move || {
+            unregister_callback(&callback_id);
+        });
+    }
 
     bridge
 }
