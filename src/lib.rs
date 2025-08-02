@@ -236,10 +236,11 @@ where
                 let _ = tx.send(result);
             },
         );
+        // Instead of thread::spawn, poll the channel in a Dioxus effect
         let data = data.clone();
         let error = error.clone();
-        std::thread::spawn(move || {
-            while let Ok(result) = rx.recv() {
+        use_effect(move || {
+            while let Ok(result) = rx.try_recv() {
                 match result {
                     Ok(parsed) => {
                         data.with_mut(|v| *v = Some(parsed));
