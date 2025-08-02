@@ -6,15 +6,15 @@ use std::fmt::Debug;
 
 // Only import wasm-specific modules when targeting wasm
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{prelude::Closure, JsValue};
+use gloo_utils::format::JsValueSerdeExt;
 #[cfg(target_arch = "wasm32")]
 use js_sys;
 #[cfg(target_arch = "wasm32")]
-use web_sys;
-#[cfg(target_arch = "wasm32")]
 use serde_wasm_bindgen;
 #[cfg(target_arch = "wasm32")]
-use gloo_utils::format::JsValueSerdeExt; // Add this import
+use wasm_bindgen::{prelude::Closure, JsValue};
+#[cfg(target_arch = "wasm32")]
+use web_sys; // Add this import
 
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
@@ -130,7 +130,12 @@ where
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            format!("callback_{}", chrono::Utc::now().timestamp_millis())
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+            format!("callback_{}", timestamp)
         }
     });
 
@@ -209,12 +214,9 @@ where
         let (tx, rx) = channel::<String>();
         let callback_id_str = bridge.callback_id();
 
-        register_callback(
-            callback_id_str.clone(),
-            move |json: String| {
-                let _ = tx.send(json);
-            },
-        );
+        register_callback(callback_id_str.clone(), move |json: String| {
+            let _ = tx.send(json);
+        });
 
         let mut data = data.clone();
         let mut error = error.clone();
