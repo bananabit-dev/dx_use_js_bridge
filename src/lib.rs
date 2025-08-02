@@ -9,8 +9,8 @@ impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
 
 #[derive(Clone)]
 pub struct JsBridge<T: FromJs + Clone> {
-    data: Signal<Option<T>>,
-    error: Signal<Option<String>>,
+    pub data: Signal<Option<T>>,
+    pub error: Signal<Option<String>>,
     callback_id: Signal<String>,
 }
 
