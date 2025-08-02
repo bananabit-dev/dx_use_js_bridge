@@ -13,6 +13,8 @@ use js_sys;
 use web_sys;
 #[cfg(target_arch = "wasm32")]
 use serde_wasm_bindgen;
+#[cfg(target_arch = "wasm32")]
+use gloo_utils::format::json::JsValueSerdeExt; // Add this import
 
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
