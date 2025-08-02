@@ -64,10 +64,7 @@ impl<T: FromJs + Clone> JsBridge<T> {
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
         {
             // FIX: Deref Rc to call eval
-            self.desktop_service
-                .as_ref()
-                .eval(js_code)
-                .map_err(|e| format!("DesktopService eval error: {:?}", e))
+            self.desktop_service.deref().eval(js_code)
         }
         #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
         {
