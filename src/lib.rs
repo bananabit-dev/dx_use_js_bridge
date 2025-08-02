@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
-use dioxus_desktop::use_window;
+use dioxus_desktop::{use_window, DesktopContext};
 #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
 use std::rc::Rc;
 
@@ -162,9 +162,9 @@ where
     let desktop_service = use_window();
 
     let bridge = JsBridge::new(
-        data,
-        error,
-        callback_id,
+        data.clone(),
+        error.clone(),
+        callback_id.clone(),
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
         desktop_service,
     );
@@ -226,20 +226,31 @@ where
     #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
     {
         use self::android_bridge::{register_callback, unregister_callback};
-        let data = data.clone();
-        let error = error.clone();
+        use std::sync::mpsc::channel;
+        let (tx, rx) = channel::<Result<T, String>>();
         register_callback(
             callback_id(),
-            move |json: String| match serde_json::from_str::<T>(&json) {
-                Ok(parsed) => {
-                    data.with_mut(|v| *v = Some(parsed));
-                    error.with_mut(|v| *v = None);
-                }
-                Err(e) => {
-                    error.with_mut(|v| *v = Some(format!("Deserialization error: {e}")));
-                }
+            move |json: String| {
+                let result = serde_json::from_str::<T>(&json)
+                    .map_err(|e| format!("Deserialization error: {e}"));
+                let _ = tx.send(result);
             },
         );
+        let data = data.clone();
+        let error = error.clone();
+        std::thread::spawn(move || {
+            while let Ok(result) = rx.recv() {
+                match result {
+                    Ok(parsed) => {
+                        data.with_mut(|v| *v = Some(parsed));
+                        error.with_mut(|v| *v = None);
+                    }
+                    Err(e) => {
+                        error.with_mut(|v| *v = Some(e));
+                    }
+                }
+            }
+        });
         let callback_id = callback_id();
         use_drop(move || {
             unregister_callback(&callback_id);
