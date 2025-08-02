@@ -63,7 +63,6 @@ impl<T: FromJs + Clone> JsBridge<T> {
         }
         #[cfg(all(not(target_arch = "wasm32"), feature = "tauri"))]
         {
-            // DesktopService::eval is synchronous, so we just call it
             self.desktop_service
                 .eval(js_code)
                 .map_err(|e| format!("DesktopService eval error: {:?}", e))
@@ -135,7 +134,10 @@ mod android_bridge {
 
 pub fn use_js_bridge<T>() -> JsBridge<T>
 where
-    T: FromJs + Clone + Debug + 'static,
+    T: FromJs + Clone + Debug + 'static
+    // For Android, add Send + Sync bounds:
+    #[cfg_attr(all(not(target_arch = "wasm32"), target_os = "android"), allow(unused))]
+    + Send + Sync,
 {
     #[cfg(all(not(feature = "uuid"), target_arch = "wasm32"))]
     use js_sys;
@@ -227,21 +229,21 @@ where
     #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
     {
         use self::android_bridge::{register_callback, unregister_callback};
-        let mut bridge_for_callback = bridge.clone();
-        let callback_id = bridge.callback_id();
+        let data = data.clone();
+        let error = error.clone();
         register_callback(
-            callback_id.clone(),
+            callback_id(),
             move |json: String| match serde_json::from_str::<T>(&json) {
                 Ok(parsed) => {
-                    bridge_for_callback.set_data(Some(parsed));
-                    bridge_for_callback.set_error(None);
+                    data.with_mut(|v| *v = Some(parsed));
+                    error.with_mut(|v| *v = None);
                 }
                 Err(e) => {
-                    bridge_for_callback.set_error(Some(format!("Deserialization error: {e}")));
+                    error.with_mut(|v| *v = Some(format!("Deserialization error: {e}")));
                 }
             },
         );
-        let callback_id = bridge.callback_id();
+        let callback_id = callback_id();
         use_drop(move || {
             unregister_callback(&callback_id);
         });
