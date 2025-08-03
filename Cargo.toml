@@ -19,6 +19,10 @@ js-sys = { version = "0.3", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 gloo-utils = "0.2"
 
+[dependencies.getrandom]
+version = "0.3.3"
+features = ["wasm_js"]
+
 [target.'cfg(target_os = "android")'.dependencies]
 libc = "0.2"
 jni = "0.21.1"
