@@ -118,18 +118,21 @@ where
     let data: Signal<Option<T>> = use_signal(|| None);
     let error: Signal<Option<String>> = use_signal(|| None);
 
-    let callback_id = use_signal(move || {
+    // Generate callback_id in a platform-specific way
+    let callback_id = use_signal(|| {
         #[cfg(feature = "uuid")]
         {
             uuid::Uuid::new_v4().to_string().replace("-", "_")
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", not(feature = "uuid")))]
         {
+            // This code only compiles for WASM targets
             let random_part: String = js_sys::Math::random().to_string().chars().skip(2).collect();
             format!("callback_{}_{}", js_sys::Date::now(), random_part)
         }
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", feature = "uuid")))]
         {
+            // For non-WASM targets without uuid feature
             use std::time::{SystemTime, UNIX_EPOCH};
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -214,9 +217,12 @@ where
         let (tx, rx) = channel::<String>();
         let callback_id_str = bridge.callback_id();
 
-        register_callback(callback_id_str.clone(), move |json: String| {
-            let _ = tx.send(json);
-        });
+        register_callback(
+            callback_id_str.clone(),
+            move |json: String| {
+                let _ = tx.send(json);
+            },
+        );
 
         let mut data = data.clone();
         let mut error = error.clone();
