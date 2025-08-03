@@ -162,7 +162,7 @@ pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
     callback_id: JString,
     json_data: JString,
 ) {
-    let callback_id_rust = match env.get_string(callback_id) {
+    let callback_id_rust = match env.get_string(&callback_id) {
         Ok(s) => s,
         Err(_) => return,
     };
@@ -170,7 +170,7 @@ pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
         Ok(s) => s.to_string(),
         Err(_) => return,
     };
-    let json_data_rust = match env.get_string(json_data) {
+    let json_data_rust = match env.get_string(&json_data) {
         Ok(s) => s,
         Err(_) => return,
     };
