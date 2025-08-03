@@ -2,6 +2,7 @@ use jni::sys;
 use jni::JavaVM;
 use std::sync::Once;
 use jni::objects::*;
+use jni::sys::JNIEnv;
 
 // Global static to hold the JavaVM pointer
 static mut GLOBAL_JAVA_VM: *mut sys::JavaVM = std::ptr::null_mut();
