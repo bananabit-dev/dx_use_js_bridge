@@ -13,10 +13,10 @@ uuid = { version = "1.8", optional = true } # This is correct for an optional de
 chrono = { version = "0.4", features = ["serde"] }
 
 # Web dependencies that are enabled via the "web" feature.
-wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", optional = true }
-js-sys = { version = "0.3", optional = true }
-serde-wasm-bindgen = { version = "0.6", optional = true }
+wasm-bindgen = { version = "0.2" }
+web-sys = { version = "0.3" }
+js-sys = { version = "0.3"}
+serde-wasm-bindgen = { version = "0.6"}
 gloo-utils = "0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -28,7 +28,7 @@ dioxus-desktop = "0.7.0-alpha.3"
 
 [features]
 default = []
-web = ["wasm-bindgen", "web-sys", "js-sys", "serde-wasm-bindgen"]
+web = []
 android = []
 uuid = ["dep:uuid"] # CORRECTED: Use "dep:" prefix to enable an optional dependency
 
