@@ -27,7 +27,7 @@ jni = "0.21.1"
 dioxus-desktop = "0.7.0-alpha.3"
 
 [features]
-default = []
+default = ["android"]
 web = []
 android = []
 uuid = ["dep:uuid"] # CORRECTED: Use "dep:" prefix to enable an optional dependency

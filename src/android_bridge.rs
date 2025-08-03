@@ -21,11 +21,11 @@ static INIT: Once = Once::new();
 pub unsafe extern "C" fn JNI_OnLoad(
     vm: *mut sys::JavaVM,
     _reserved: *mut std::ffi::c_void,
-) -> i32 {
+) -> sys::jint {
     INIT.call_once(|| {
         GLOBAL_JAVA_VM = vm;
     });
-    sys::JNI_VERSION_1_8
+    sys::JNI_VERSION_1_6
 }
 
 /// On Android, retrieve the JavaVM from our stored global variable.
@@ -33,26 +33,26 @@ pub unsafe extern "C" fn JNI_OnLoad(
 fn get_java_vm() -> Option<JavaVM> {
     unsafe {
         if GLOBAL_JAVA_VM.is_null() {
-            None
+            // Try to get it from JNI_GetCreatedJavaVMs as a fallback
+            get_created_java_vms()
         } else {
             JavaVM::from_raw(GLOBAL_JAVA_VM as *mut sys::JavaVM).ok()
         }
     }
 }
 
-/// On non-Android platforms, retrieve the JavaVM using JNI_GetCreatedJavaVMs.
-#[cfg(not(target_os = "android"))]
-fn get_java_vm() -> Option<JavaVM> {
+/// Get JavaVM using JNI_GetCreatedJavaVMs as a fallback method
+#[cfg(target_os = "android")]
+fn get_created_java_vms() -> Option<JavaVM> {
     unsafe {
         let mut vm_buf: [*mut sys::JavaVM; 1] = [ptr::null_mut()];
-        let mut vm_count: i32 = 0;
-        if sys::JNI_GetCreatedJavaVMs(vm_buf.as_mut_ptr(), 1, &mut vm_count)
-            == sys::JNI_OK as i32
-            && vm_count > 0
-        {
+        let mut vm_count: sys::jint = 0;
+        let result = sys::JNI_GetCreatedJavaVMs(vm_buf.as_mut_ptr(), 1, &mut vm_count);
+        
+        if result == sys::JNI_OK as i32 && vm_count > 0 {
             let raw_vm = vm_buf[0];
             if !raw_vm.is_null() {
-                JavaVM::from_raw(raw_vm as *mut sys::JavaVM).ok()
+                JavaVM::from_raw(raw_vm).ok()
             } else {
                 None
             }
