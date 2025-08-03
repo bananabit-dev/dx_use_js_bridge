@@ -1,6 +1,6 @@
 use jni::{
     objects::{JClass, JObject, JString, JValue},
-    sys::jstring,
+    sys::{jvalue, jniVoidType},
     JNIEnv, JavaVM,
 };
 use std::collections::HashMap;
@@ -20,7 +20,7 @@ fn get_java_vm() -> Option<JavaVM> {
     // For now, we'll try to get it from the current thread
     unsafe {
         // Try to get the JavaVM from the current thread
-        if let Ok(vm_ptr) = jni::JavaVM::try_get_java_vm_pointer() {
+        if let Ok(vm_ptr) = jni::JavaVM::get_java_vm_pointer() {
             JavaVM::from_raw(vm_ptr).ok()
         } else {
             None
@@ -73,7 +73,7 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
         class,
         method_id,
         jni::sys::jniVoidType(),
-        &[JValue::Object(&js_code_jstring.into())]
+        &[JValue::Object(&js_code_jstring.into()).as_jvalue()]
     ).map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
     
     // Check for exceptions
@@ -118,7 +118,7 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
         class,
         method_id,
         jni::sys::jniVoidType(),
-        &[JValue::Object(&message_jstring.into())]
+        &[JValue::Object(&message_jstring.into()).as_jvalue()]
     ).map_err(|e| format!("Failed to call onMessageFromRust: {:?}", e))?;
     
     // Check for exceptions
