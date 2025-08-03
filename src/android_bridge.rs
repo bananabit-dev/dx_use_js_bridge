@@ -1,32 +1,51 @@
-use jni::{
-    objects::{JClass, JObject, JString, JValue},
-    JNIEnv, JavaVM,
-};
-use jni::sys::{self, JNI_OK, JNI_GetCreatedJavaVMs};
-use std::collections::HashMap;
-use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use jni::sys;
+use jni::JavaVM;
+use std::sync::Once;
 
-// Global storage for callbacks
-static CALLBACKS: LazyLock<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+// Global static to hold the JavaVM pointer
+static mut GLOBAL_JAVA_VM: *mut sys::JavaVM = std::ptr::null_mut();
+static INIT: Once = Once::new();
 
-/// Attempts to retrieve a JavaVM instance.
-/// (In production you would likely store the JavaVM during JNI_OnLoad.)
+// This function should be called from JNI_OnLoad in your native library.
+#[no_mangle]
+pub unsafe extern "C" fn JNI_OnLoad(
+    vm: *mut sys::JavaVM,
+    _reserved: *mut std::ffi::c_void,
+) -> i32 {
+    INIT.call_once(|| {
+        GLOBAL_JAVA_VM = vm;
+    });
+    // Return the JNI version you support (e.g., JNI_VERSION_1_6)
+    sys::JNI_VERSION_1_8
+}
+
+// Now, use conditional compilation to avoid using JNI_GetCreatedJavaVMs on Android.
+#[cfg(target_os = "android")]
 fn get_java_vm() -> Option<JavaVM> {
+    unsafe {
+        if GLOBAL_JAVA_VM.is_null() {
+            None
+        } else {
+            // Safety: This assumes that the JavaVM pointer remains valid.
+            JavaVM::from_raw(GLOBAL_JAVA_VM as *mut sys::JavaVM).ok()
+        }
+    }
+}
+
+// For non-Android platforms, you may still use the original approach.
+#[cfg(not(target_os = "android"))]
+fn get_java_vm() -> Option<JavaVM> {
+    use std::ptr;
     unsafe {
         let mut vm_buf: [*mut sys::JavaVM; 1] = [ptr::null_mut()];
         let mut vm_count: i32 = 0;
-        if JNI_GetCreatedJavaVMs(vm_buf.as_mut_ptr(), 1, &mut vm_count)
-            == JNI_OK as i32
+        if sys::JNI_GetCreatedJavaVMs(vm_buf.as_mut_ptr(), 1, &mut vm_count)
+            == sys::JNI_OK as i32
             && vm_count > 0
         {
             let raw_vm = vm_buf[0];
             if !raw_vm.is_null() {
-                match JavaVM::from_raw(raw_vm as *mut sys::JavaVM) {
-                    Ok(jvm) => Some(jvm),
-                    Err(_) => None,
-                }
+                JavaVM::from_raw(raw_vm as *mut sys::JavaVM).ok()
             } else {
                 None
             }
