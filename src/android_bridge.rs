@@ -1,7 +1,7 @@
 use jni::{
     objects::{JClass, JObject, JString, JValue},
-    sys::jvalue,
-    JNIEnv, JavaVM,
+    sys::{self, JavaVM, JNI_OK, JNI_GetCreatedJavaVMs},
+    JNIEnv,
 };
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -23,7 +23,7 @@ fn get_java_vm() -> Option<JavaVM> {
         let mut vm_ptr: *mut *mut sys::JavaVM = ptr::null_mut();
         let mut vm_count = 0;
         
-        if sys::JNI_GetCreatedJavaVMs(&mut vm_ptr, 1, &mut vm_count) == sys::JNI_OK as i32 && vm_count > 0 {
+        if JNI_GetCreatedJavaVMs(&mut vm_ptr, 1, &mut vm_count) == JNI_OK as i32 && vm_count > 0 {
             if !vm_ptr.is_null() {
                 JavaVM::from_raw(*vm_ptr).ok()
             } else {
@@ -76,9 +76,10 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     
     // Call the static method
-    env.call_static_void_method(
+    env.call_static_method(
         class,
-        method_id,
+        "evalJs",
+        "(Ljava/lang/String;)V",
         &[JValue::Object(&js_code_jstring.into())]
     ).map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
     
@@ -120,9 +121,10 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     
     // Call the static method
-    env.call_static_void_method(
+    env.call_static_method(
         class,
-        method_id,
+        "onMessageFromRust",
+        "(Ljava/lang/String;)V",
         &[JValue::Object(&message_jstring.into())]
     ).map_err(|e| format!("Failed to call onMessageFromRust: {:?}", e))?;
     
