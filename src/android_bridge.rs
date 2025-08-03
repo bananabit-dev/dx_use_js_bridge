@@ -1,14 +1,22 @@
 use jni::sys;
 use jni::JavaVM;
-use std::sync::Once;
-use jni::objects::*;
-use jni::sys::JNIEnv;
+use jni::objects::{JClass, JObject, JString, JValue};
+use jni::JNIEnv;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::ptr;
+use std::sync::{Mutex, Once};
 
-// Global static to hold the JavaVM pointer
-static mut GLOBAL_JAVA_VM: *mut sys::JavaVM = std::ptr::null_mut();
+// Global static to hold callback functions.
+static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+// Global static to hold the JavaVM pointer.
+static mut GLOBAL_JAVA_VM: *mut sys::JavaVM = ptr::null_mut();
 static INIT: Once = Once::new();
 
-// This function should be called from JNI_OnLoad in your native library.
+/// This function is called when the native library is loaded.
+/// It stores the JavaVM pointer for later use.
 #[no_mangle]
 pub unsafe extern "C" fn JNI_OnLoad(
     vm: *mut sys::JavaVM,
@@ -17,27 +25,24 @@ pub unsafe extern "C" fn JNI_OnLoad(
     INIT.call_once(|| {
         GLOBAL_JAVA_VM = vm;
     });
-    // Return the JNI version you support (e.g., JNI_VERSION_1_6)
     sys::JNI_VERSION_1_8
 }
 
-// Now, use conditional compilation to avoid using JNI_GetCreatedJavaVMs on Android.
+/// On Android, retrieve the JavaVM from our stored global variable.
 #[cfg(target_os = "android")]
 fn get_java_vm() -> Option<JavaVM> {
     unsafe {
         if GLOBAL_JAVA_VM.is_null() {
             None
         } else {
-            // Safety: This assumes that the JavaVM pointer remains valid.
             JavaVM::from_raw(GLOBAL_JAVA_VM as *mut sys::JavaVM).ok()
         }
     }
 }
 
-// For non-Android platforms, you may still use the original approach.
+/// On non-Android platforms, retrieve the JavaVM using JNI_GetCreatedJavaVMs.
 #[cfg(not(target_os = "android"))]
 fn get_java_vm() -> Option<JavaVM> {
-    use std::ptr;
     unsafe {
         let mut vm_buf: [*mut sys::JavaVM; 1] = [ptr::null_mut()];
         let mut vm_count: i32 = 0;
@@ -57,7 +62,7 @@ fn get_java_vm() -> Option<JavaVM> {
     }
 }
 
-/// Registers a callback for the given ID.
+/// Registers a callback function under the provided identifier.
 pub fn register_callback<F>(id: String, callback: F)
 where
     F: Fn(String) + Send + Sync + 'static,
@@ -66,7 +71,7 @@ where
     callbacks.insert(id, Box::new(callback));
 }
 
-/// Unregisters a callback.
+/// Unregisters the callback function associated with the provided identifier.
 pub fn unregister_callback(id: &str) {
     let mut callbacks = CALLBACKS.lock().unwrap();
     callbacks.remove(id);
@@ -92,12 +97,12 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     // Convert the JString into a JObject.
     let js_obj: JObject = JObject::from(js_string);
-    // NOTE: JValue::Object requires a reference to the JObject.
+    // Prepare the argument list.
     let args = [JValue::Object(&js_obj)];
     // Call the static method "evalJs".
     env.call_static_method(class, "evalJs", "(Ljava/lang/String;)V", &args)
         .map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
-    // Check for exceptions.
+    // Check for any exceptions thrown by the JVM.
     if env
         .exception_check()
         .map_err(|e| format!("Failed to check for exceptions: {:?}", e))?
@@ -148,7 +153,7 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
 }
 
 /// This JNI function is called from Java/Kotlin when a message is received.
-/// It converts the incoming Java strings to Rust strings and invokes the
+/// It converts the incoming Java strings to Rust strings and then invokes the
 /// registered callback for the provided callback ID.
 #[no_mangle]
 pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
@@ -157,7 +162,7 @@ pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
     callback_id: JString,
     json_data: JString,
 ) {
-    let callback_id_rust = match env.get_string(&callback_id) {
+    let callback_id_rust = match env.get_string(callback_id) {
         Ok(s) => s,
         Err(_) => return,
     };
@@ -165,7 +170,7 @@ pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
         Ok(s) => s.to_string(),
         Err(_) => return,
     };
-    let json_data_rust = match env.get_string(&json_data) {
+    let json_data_rust = match env.get_string(json_data) {
         Ok(s) => s,
         Err(_) => return,
     };
