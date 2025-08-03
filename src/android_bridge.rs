@@ -7,23 +7,24 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::c_char;
 use std::ptr;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::thread;
 
 // Global storage for callbacks
-static CALLBACKS: Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>> =
-    Mutex::new(HashMap::new());
+static CALLBACKS: LazyLock<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> = 
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // Get the JavaVM instance
 fn get_java_vm() -> Option<JavaVM> {
-    // This should be initialized when the JNI library is loaded
-    // In a real implementation, you would store this when the library is loaded
+    // This is a placeholder - in a real implementation, you would get the VM from JNI_OnLoad
+    // For now, we'll try to get it from the current thread
     unsafe {
-        // This is a placeholder - in a real implementation, you would get the VM from JNI_OnLoad
-        // For now, we'll try to get it from the current thread
-        jni::JavaVM::get_java_vm_pointer()
-            .map(|ptr| unsafe { JavaVM::from_raw(ptr) })
-            .ok()
+        // Try to get the JavaVM from the current thread
+        if let Ok(vm_ptr) = jni::JavaVM::try_get_java_vm_pointer() {
+            JavaVM::from_raw(vm_ptr).ok()
+        } else {
+            None
+        }
     }
 }
 
@@ -48,7 +49,7 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
     let vm = get_java_vm().ok_or("Failed to get JavaVM")?;
     
     // Attach to the current thread
-    let env = vm.attach_current_thread()
+    let mut env = vm.attach_current_thread()
         .map_err(|e| format!("Failed to attach to JVM: {:?}", e))?;
     
     // Find the RustBridge class
@@ -68,8 +69,12 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     
     // Call the static method
-    env.call_static_void_method(class, method_id, &[JValue::Object(&js_code_jstring.into())])
-        .map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
+    env.call_static_method_unchecked(
+        class,
+        method_id,
+        jni::sys::jniVoidType(),
+        &[JValue::Object(&js_code_jstring.into())]
+    ).map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
     
     // Check for exceptions
     if env.exception_check().map_err(|e| format!("Failed to check for exceptions: {:?}", e))? {
@@ -89,7 +94,7 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
     let vm = get_java_vm().ok_or("Failed to get JavaVM")?;
     
     // Attach to the current thread
-    let env = vm.attach_current_thread()
+    let mut env = vm.attach_current_thread()
         .map_err(|e| format!("Failed to attach to JVM: {:?}", e))?;
     
     // Find the RustBridge class
@@ -109,8 +114,12 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     
     // Call the static method
-    env.call_static_void_method(class, method_id, &[JValue::Object(&message_jstring.into())])
-        .map_err(|e| format!("Failed to call onMessageFromRust: {:?}", e))?;
+    env.call_static_method_unchecked(
+        class,
+        method_id,
+        jni::sys::jniVoidType(),
+        &[JValue::Object(&message_jstring.into())]
+    ).map_err(|e| format!("Failed to call onMessageFromRust: {:?}", e))?;
     
     // Check for exceptions
     if env.exception_check().map_err(|e| format!("Failed to check for exceptions: {:?}", e))? {
@@ -127,13 +136,13 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
 // JNI function to be called from Java/Kotlin
 #[no_mangle]
 pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     callback_id: JString,
     json_data: JString,
 ) {
     // Convert Java strings to Rust strings
-    let callback_id_rust = match env.get_string(callback_id) {
+    let callback_id_rust = match env.get_string(&callback_id) {
         Ok(s) => s,
         Err(_) => return,
     };
@@ -142,7 +151,7 @@ pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
         Err(_) => return,
     };
     
-    let json_data_rust = match env.get_string(json_data) {
+    let json_data_rust = match env.get_string(&json_data) {
         Ok(s) => s,
         Err(_) => return,
     };
