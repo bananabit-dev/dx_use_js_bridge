@@ -298,7 +298,7 @@ where
                 callback_id_str, callback_id_str
             );
             
-            // Clone the bridge before moving it into the closure
+            // Clone the bridge before moving it into the closure and make it mutable
             let mut bridge_clone = bridge_for_effect.clone();
             spawn(async move {
                 if let Err(e) = bridge_clone.eval(&js_code).await {
