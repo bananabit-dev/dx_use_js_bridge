@@ -14,7 +14,11 @@ use serde_wasm_bindgen;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{prelude::Closure, JsValue};
 #[cfg(target_arch = "wasm32")]
-use web_sys; // Add this import
+use web_sys;
+
+// Import the android_bridge module
+#[cfg(target_os = "android")]
+mod android_bridge;
 
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
@@ -57,57 +61,90 @@ impl<T: FromJs + Clone> JsBridge<T> {
 
     /// Rust → JS: Evaluate JS code (cross-platform via dioxus::html::document().eval)
     pub async fn eval(&mut self, js_code: &str) -> Result<(), String> {
-        dioxus::document::eval(js_code)
-            .await
-            .map(|_| ())
-            .map_err(|e| format!("JS eval error: {:?}", e))
+        #[cfg(target_arch = "wasm32")]
+        {
+            dioxus::document::eval(js_code)
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("JS eval error: {:?}", e))
+        }
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // For non-WASM targets, we need to handle this differently
+            #[cfg(target_os = "android")]
+            {
+                // For Android, we'll use the JNI bridge to evaluate JS
+                self.eval_android(js_code).await
+            }
+            
+            #[cfg(not(target_os = "android"))]
+            {
+                // For Desktop, we can use dioxus::document::eval
+                dioxus::document::eval(js_code)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| format!("JS eval error: {:?}", e))
+            }
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    async fn eval_android(&mut self, js_code: &str) -> Result<(), String> {
+        use crate::android_bridge;
+        
+        // Send the JavaScript code to be evaluated on the Android side
+        android_bridge::eval_js(js_code).await
     }
 
     pub async fn send_to_js<S: Serialize>(&mut self, data: &S) -> Result<(), String> {
         let json_data =
             serde_json::to_string(data).map_err(|e| format!("Serialization error: {}", e))?;
-        let js_code = format!(
-            "if (window.__dioxus_bridge_{}) {{ window.__dioxus_bridge_{}({}); }}",
-            self.callback_id(),
+        
+        // Platform-specific implementations
+        #[cfg(target_arch = "wasm32")]
+        {
+            let js_code = format!(
+                "if (window.__dioxus_bridge_{}) {{ window.__dioxus_bridge_{}({}); }}",
+                self.callback_id(),
+                self.callback_id(),
+                json_data
+            );
+            self.eval(&js_code).await
+        }
+        
+        #[cfg(target_os = "android")]
+        {
+            // For Android, use the JNI bridge
+            self.send_to_js_android(&json_data).await
+        }
+        
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+        {
+            // For Desktop
+            let js_code = format!(
+                "if (window.__dioxus_bridge_{}) {{ window.__dioxus_bridge_{}({}); }}",
+                self.callback_id(),
+                self.callback_id(),
+                json_data
+            );
+            self.eval(&js_code).await
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    async fn send_to_js_android(&mut self, json_data: &str) -> Result<(), String> {
+        use crate::android_bridge;
+        
+        // Create a message that includes the callback ID and data
+        let message = format!(
+            "{{\"callback_id\":\"{}\",\"data\":{}}}",
             self.callback_id(),
             json_data
         );
-        self.eval(&js_code).await
-    }
-}
-
-#[cfg(target_os = "android")]
-mod android_bridge {
-    use super::*;
-    use once_cell::sync::Lazy;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-
-    static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
-        Lazy::new(|| Mutex::new(HashMap::new()));
-
-    pub fn register_callback<F: Fn(String) + Send + Sync + 'static>(id: String, cb: F) {
-        CALLBACKS.lock().unwrap().insert(id, Box::new(cb));
-    }
-    pub fn unregister_callback(id: &str) {
-        CALLBACKS.lock().unwrap().remove(id);
-    }
-    /// Call this from Java/Kotlin via JNI, passing the callback_id and the JSON string.
-    #[no_mangle]
-    pub extern "C" fn rust_js_bridge_callback(
-        callback_id: *const libc::c_char,
-        json: *const libc::c_char,
-    ) {
-        use std::ffi::CStr;
-        let callback_id = unsafe { CStr::from_ptr(callback_id) }
-            .to_string_lossy()
-            .to_string();
-        let json = unsafe { CStr::from_ptr(json) }
-            .to_string_lossy()
-            .to_string();
-        if let Some(cb) = CALLBACKS.lock().unwrap().get(&callback_id) {
-            cb(json);
-        }
+        
+        // Send the message to Java/Kotlin via the JNI bridge
+        android_bridge::send_to_java(message).await
     }
 }
 
@@ -196,22 +233,30 @@ where
         let mut bridge_for_effect = bridge.clone();
         use_effect(move || {
             // For Dioxus Desktop, inject a JS callback in your HTML or via eval.
-            // Example: in your index.html, add:
-            // <script>
-            // window.__dioxus_bridge_callback = function(callbackId, payload) {
-            //   if (window["__dioxus_bridge_" + callbackId]) {
-            //     window["__dioxus_bridge_" + callbackId](payload);
-            //   }
-            // };
-            // </script>
-            // Or use dioxus::html::document().eval to inject this at runtime.
+            let callback_id_str = bridge_for_effect.callback_id();
+            let js_code = format!(
+                "window.__dioxus_bridge_{} = function(data) {{
+                    if (window.__dioxus_bridge_callback) {{
+                        window.__dioxus_bridge_callback('{}', JSON.stringify(data));
+                    }}
+                }}",
+                callback_id_str, callback_id_str
+            );
+            
+            // Clone the bridge before moving it into the closure
+            let mut bridge_clone = bridge_for_effect.clone();
+            spawn(async move {
+                if let Err(e) = bridge_clone.eval(&js_code).await {
+                    eprintln!("Failed to inject desktop bridge function: {}", e);
+                }
+            });
         });
     }
 
     // --- Android: Register JNI callback with channel to main thread ---
     #[cfg(target_os = "android")]
     {
-        use self::android_bridge::{register_callback, unregister_callback};
+        use crate::android_bridge::{register_callback, unregister_callback};
         use std::sync::mpsc::channel;
 
         let (tx, rx) = channel::<String>();
@@ -238,6 +283,28 @@ where
                     }
                 }
             }
+        });
+
+        // Also inject a JS function for Android
+        let mut bridge_for_effect = bridge.clone();
+        use_effect(move || {
+            let callback_id_str = bridge_for_effect.callback_id();
+            let js_code = format!(
+                "window.__dioxus_bridge_{} = function(data) {{
+                    if (window.RustBridge) {{
+                        window.RustBridge.postMessage('{}', JSON.stringify(data));
+                    }}
+                }}",
+                callback_id_str, callback_id_str
+            );
+            
+            // Clone the bridge before moving it into the closure
+            let bridge_clone = bridge_for_effect.clone();
+            spawn(async move {
+                if let Err(e) = bridge_clone.eval(&js_code).await {
+                    eprintln!("Failed to inject android bridge function: {}", e);
+                }
+            });
         });
 
         let callback_id = bridge.callback_id();
