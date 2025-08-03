@@ -12,17 +12,17 @@ static CALLBACKS: LazyLock<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Syn
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Attempts to retrieve a JavaVM instance.
-/// (In production, you would likely store the JavaVM during JNI_OnLoad.)
+/// (In production you would likely store the JavaVM during JNI_OnLoad.)
 fn get_java_vm() -> Option<JavaVM> {
     unsafe {
         let mut vm_buf: [*mut sys::JavaVM; 1] = [ptr::null_mut()];
         let mut vm_count: i32 = 0;
-        if JNI_GetCreatedJavaVMs(vm_buf.as_mut_ptr(), 1, &mut vm_count) == JNI_OK as i32
+        if JNI_GetCreatedJavaVMs(vm_buf.as_mut_ptr(), 1, &mut vm_count)
+            == JNI_OK as i32
             && vm_count > 0
         {
             let raw_vm = vm_buf[0];
             if !raw_vm.is_null() {
-                // Use from_raw after casting raw_vm to the expected type.
                 match JavaVM::from_raw(raw_vm as *mut sys::JavaVM) {
                     Ok(jvm) => Some(jvm),
                     Err(_) => None,
@@ -65,13 +65,14 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
     let class = env
         .find_class(class_name)
         .map_err(|e| format!("Failed to find class {}: {:?}", class_name, e))?;
-    // Create a Java string from the js_code.
+    // Create a Java string from js_code.
     let js_string = env
         .new_string(js_code)
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
-    // Explicitly convert the JString into a JObject.
+    // Convert the JString into a JObject.
     let js_obj: JObject = JObject::from(js_string);
-    let args = [JValue::Object(js_obj)];
+    // NOTE: JValue::Object requires a reference to the JObject.
+    let args = [JValue::Object(&js_obj)];
     // Call the static method "evalJs".
     env.call_static_method(class, "evalJs", "(Ljava/lang/String;)V", &args)
         .map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
@@ -100,14 +101,18 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
     let class = env
         .find_class(class_name)
         .map_err(|e| format!("Failed to find class {}: {:?}", class_name, e))?;
-    // Create the Java string from the message.
     let msg_string = env
         .new_string(&message)
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     let msg_obj: JObject = JObject::from(msg_string);
-    let args = [JValue::Object(msg_obj)];
-    env.call_static_method(class, "onMessageFromRust", "(Ljava/lang/String;)V", &args)
-        .map_err(|e| format!("Failed to call onMessageFromRust: {:?}", e))?;
+    let args = [JValue::Object(&msg_obj)];
+    env.call_static_method(
+        class,
+        "onMessageFromRust",
+        "(Ljava/lang/String;)V",
+        &args,
+    )
+    .map_err(|e| format!("Failed to call onMessageFromRust: {:?}", e))?;
     if env
         .exception_check()
         .map_err(|e| format!("Failed to check for exceptions: {:?}", e))?
