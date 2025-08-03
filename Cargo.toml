@@ -30,7 +30,7 @@ dioxus-desktop = "0.7.0-alpha.3"
 default = []
 web = ["wasm-bindgen", "web-sys", "js-sys", "serde-wasm-bindgen"]
 android = []
-uuid = ["uuid"]
+uuid = ["dep:uuid"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
