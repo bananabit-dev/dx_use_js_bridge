@@ -1,6 +1,6 @@
 use jni::{
     objects::{JClass, JObject, JString, JValue},
-    sys::{jvalue, jniVoidType},
+    sys::jvalue,
     JNIEnv, JavaVM,
 };
 use std::collections::HashMap;
@@ -19,9 +19,16 @@ fn get_java_vm() -> Option<JavaVM> {
     // This is a placeholder - in a real implementation, you would get the VM from JNI_OnLoad
     // For now, we'll try to get it from the current thread
     unsafe {
-        // Try to get the JavaVM from the current thread
-        if let Ok(vm_ptr) = jni::JavaVM::get_java_vm_pointer() {
-            JavaVM::from_raw(vm_ptr).ok()
+        // Get available JavaVMs
+        let mut vm_ptr: *mut *mut sys::JavaVM = ptr::null_mut();
+        let mut vm_count = 0;
+        
+        if sys::JNI_GetCreatedJavaVMs(&mut vm_ptr, 1, &mut vm_count) == sys::JNI_OK as i32 && vm_count > 0 {
+            if !vm_ptr.is_null() {
+                JavaVM::from_raw(*vm_ptr).ok()
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -69,11 +76,10 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     
     // Call the static method
-    env.call_static_method_unchecked(
+    env.call_static_void_method(
         class,
         method_id,
-        jni::sys::jniVoidType(),
-        &[JValue::Object(&js_code_jstring.into()).as_jvalue()]
+        &[JValue::Object(&js_code_jstring.into())]
     ).map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
     
     // Check for exceptions
@@ -114,11 +120,10 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     
     // Call the static method
-    env.call_static_method_unchecked(
+    env.call_static_void_method(
         class,
         method_id,
-        jni::sys::jniVoidType(),
-        &[JValue::Object(&message_jstring.into()).as_jvalue()]
+        &[JValue::Object(&message_jstring.into())]
     ).map_err(|e| format!("Failed to call onMessageFromRust: {:?}", e))?;
     
     // Check for exceptions
