@@ -299,7 +299,7 @@ where
             );
             
             // Clone the bridge before moving it into the closure
-            let bridge_clone = bridge_for_effect.clone();
+            let mut bridge_clone = bridge_for_effect.clone();
             spawn(async move {
                 if let Err(e) = bridge_clone.eval(&js_code).await {
                     eprintln!("Failed to inject android bridge function: {}", e);
