@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Mutex;
+use std::sync::Arc;
 
 // Global static to hold callback functions.
 static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
@@ -14,6 +15,16 @@ static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>
 
 // Global static to hold the JavaVM pointer using atomic for better thread safety.
 static GLOBAL_JAVA_VM: AtomicPtr<sys::JavaVM> = AtomicPtr::new(ptr::null_mut());
+
+// Fallback for storing JavaVM
+static mut JAVA_VM_PTR: *mut sys::JavaVM = ptr::null_mut();
+
+/// Store the JavaVM instance globally
+pub unsafe fn store_java_vm(vm: *mut sys::JavaVM) {
+    GLOBAL_JAVA_VM.store(vm, Ordering::SeqCst);
+    JAVA_VM_PTR = vm;
+    eprintln!("Stored JavaVM pointer: {:?}", vm);
+}
 
 /// This function is called when the native library is loaded.
 /// It stores the JavaVM pointer for later use.
@@ -23,12 +34,34 @@ pub unsafe extern "C" fn JNI_OnLoad(
     _reserved: *mut std::ffi::c_void,
 ) -> sys::jint {
     // Store the JavaVM pointer atomically
-    GLOBAL_JAVA_VM.store(vm, Ordering::SeqCst);
+    store_java_vm(vm);
     
     // Print debug info
     eprintln!("JNI_OnLoad called, stored JavaVM pointer: {:?}", vm);
     
     sys::JNI_VERSION_1_6
+}
+
+/// Alternative method to set JavaVM from Kotlin side
+#[no_mangle]
+pub unsafe extern "C" fn Java_dev_dioxus_main_JsBridge_registerInstance(
+    env: JNIEnv,
+    _class: JClass,
+    activity: JObject,
+) {
+    // Get the JavaVM from the current environment
+    match env.get_java_vm() {
+        Ok(vm) => {
+            // We already have access to the JavaVM via env, so we don't need to store it
+            // The important part is that we've confirmed we can access the JVM
+            eprintln!("Java_dev_dioxus_main_JsBridge_registerInstance called - confirmed JVM access");
+        }
+        Err(e) => {
+            eprintln!("Java_dev_dioxus_main_JsBridge_registerInstance - failed to get JavaVM from env: {:?}", e);
+        }
+    }
+    
+    eprintln!("Java_dev_dioxus_main_JsBridge_registerInstance called with activity: {:?}", activity);
 }
 
 /// On Android, retrieve the JavaVM from our stored global variable.
@@ -53,6 +86,21 @@ pub fn get_java_vm() -> Option<JavaVM> {
             eprintln!("Stored JavaVM pointer is null");
         }
         
+        // Fallback: try to get it from the global variable
+        if !JAVA_VM_PTR.is_null() {
+            match JavaVM::from_raw(JAVA_VM_PTR) {
+                Ok(vm) => {
+                    eprintln!("Successfully created JavaVM from global variable");
+                    return Some(vm);
+                }
+                Err(e) => {
+                    eprintln!("Failed to create JavaVM from global variable: {:?}", e);
+                }
+            }
+        } else {
+            eprintln!("Global JAVA_VM_PTR is also null");
+        }
+        
         None
     }
 }
@@ -73,7 +121,7 @@ pub fn unregister_callback(id: &str) {
 }
 
 /// Evaluates JavaScript on Android by calling the static method `evalJs` on
-/// the Kotlin class "io.github.memkit.JsBridge".
+/// the Kotlin class "dev.dioxus.main.JsBridge".
 #[cfg(target_os = "android")]
 pub async fn eval_js(js_code: &str) -> Result<(), String> {
     eprintln!("Attempting to evaluate JS: {}", js_code);
@@ -88,7 +136,7 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to attach to JVM: {:?}", e))?;
     eprintln!("Successfully attached to JVM");
     
-    let class_name = "io/github/memkit/JsBridge";
+    let class_name = "dev/dioxus/main/JsBridge";
     let class = env
         .find_class(class_name)
         .map_err(|e| format!("Failed to find class {}: {:?}", class_name, e))?;
@@ -122,7 +170,7 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
 }
 
 /// Sends data to Kotlin by calling the static method `onMessageFromRust` on
-/// the Kotlin class "io.github.memkit.JsBridge".
+/// the Kotlin class "dev.dioxus.main.JsBridge".
 #[cfg(target_os = "android")]
 pub async fn send_to_java(message: String) -> Result<(), String> {
     eprintln!("Attempting to send message to Kotlin: {}", message);
@@ -135,7 +183,7 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to attach to JVM: {:?}", e))?;
     eprintln!("Successfully attached to JVM");
     
-    let class_name = "io/github/memkit/JsBridge";
+    let class_name = "dev/dioxus/main/JsBridge";
     let class = env
         .find_class(class_name)
         .map_err(|e| format!("Failed to find class {}: {:?}", class_name, e))?;
@@ -177,7 +225,7 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
 /// It converts the incoming Java strings to Rust strings and then invokes the
 /// registered callback for the provided callback ID.
 #[no_mangle]
-pub extern "system" fn Java_io_github_memkit_JsBridge_onMessageFromJava(
+pub extern "system" fn Java_dev_dioxus_main_JsBridge_onMessageFromJava(
     mut env: JNIEnv,
     _class: JClass,
     callback_id: JString,
