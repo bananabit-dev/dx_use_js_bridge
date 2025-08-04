@@ -42,35 +42,6 @@ fn main() {
             if lib_path.exists() {
                 println!("cargo:rustc-link-search=native={}", lib_path.display());
             }
-            
-            // Also add compiler-rt path for unwind support
-            let clang_version = "20"; // Based on what we found in the NDK
-            let compiler_rt_path = ndk_path_buf
-                .join("toolchains")
-                .join("llvm")
-                .join("prebuilt")
-                .join("linux-x86_64")
-                .join("lib")
-                .join("clang")
-                .join(clang_version)
-                .join("lib")
-                .join("linux");
-                
-            if compiler_rt_path.exists() {
-                println!("cargo:rustc-link-search=native={}", compiler_rt_path.display());
-                
-                // Determine the correct suffix for the target
-                let arch_suffix = match target.as_str() {
-                    "aarch64-linux-android" => "aarch64-android",
-                    "armv7-linux-androideabi" => "arm-android",
-                    "x86_64-linux-android" => "x86_64-android",
-                    "i686-linux-android" => "i686-android",
-                    _ => "aarch64-android",
-                };
-                
-                // Link the builtins library which provides unwind functionality
-                println!("cargo:rustc-link-lib=static=clang_rt.builtins-{}", arch_suffix);
-            }
         }
         
         // Enable the uuid feature for Android builds

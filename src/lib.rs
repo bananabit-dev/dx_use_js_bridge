@@ -1,13 +1,13 @@
 use dioxus::core::use_drop;
 use dioxus::prelude::*;
-use dioxus_signals::{Readable, Writable};
+use dioxus::signals::{Readable, Writable, Signal};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 // Only import wasm-specific modules when targeting wasm
 #[cfg(target_arch = "wasm32")]
 use gloo_utils::format::JsValueSerdeExt;
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
+#[cfg(target_arch = "wasm32")]
 use js_sys;
 #[cfg(target_arch = "wasm32")]
 use serde_wasm_bindgen;
@@ -295,11 +295,35 @@ where
             let callback_id_str = bridge_for_effect.callback_id();
             let js_code = format!(
                 "window.__dioxus_bridge_{} = function(data) {{
-                    if (window.RustBridge) {{
-                        window.RustBridge.postMessage('{}', JSON.stringify(data));
+                    // Try JsBridge first
+                    if (window.JsBridge && window.JsBridge.postMessage) {{
+                        window.JsBridge.postMessage('{}', JSON.stringify(data));
+                        return;
                     }}
+                    
+                    // Try RustBridge as fallback
+                    if (window.RustBridge && window.RustBridge.postMessage) {{
+                        window.RustBridge.postMessage('{}', JSON.stringify(data));
+                        return;
+                    }}
+                    
+                    // Try alternative method with custom event
+                    try {{
+                        var event = new CustomEvent('rustBridgeMessage', {{
+                            detail: {{
+                                callbackId: '{}',
+                                data: data
+                            }}
+                        }});
+                        window.dispatchEvent(event);
+                    }} catch (e) {{
+                        console.error('Failed to send message via custom event:', e);
+                    }}
+                    
+                    // Log if no method works
+                    console.warn('No bridge available for callback {}');
                 }}",
-                callback_id_str, callback_id_str
+                callback_id_str, callback_id_str, callback_id_str, callback_id_str, callback_id_str
             );
             
             // Clone the bridge before moving it into the closure and make it mutable

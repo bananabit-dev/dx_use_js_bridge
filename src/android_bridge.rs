@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::{Mutex, Once};
+use std::sync::Mutex;
 
 // Global static to hold callback functions.
 static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>> =
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn JNI_OnLoad(
 
 /// On Android, retrieve the JavaVM from our stored global variable.
 #[cfg(target_os = "android")]
-fn get_java_vm() -> Option<JavaVM> {
+pub fn get_java_vm() -> Option<JavaVM> {
     unsafe {
         // First try to get it from our stored pointer
         let vm_ptr = GLOBAL_JAVA_VM.load(Ordering::SeqCst);
@@ -73,45 +73,39 @@ pub fn unregister_callback(id: &str) {
 }
 
 /// Evaluates JavaScript on Android by calling the static method `evalJs` on
-/// the Kotlin class "io.github.memkit.RustBridge".
+/// the Kotlin class "io.github.memkit.JsBridge".
+#[cfg(target_os = "android")]
 pub async fn eval_js(js_code: &str) -> Result<(), String> {
     eprintln!("Attempting to evaluate JS: {}", js_code);
     
-    // Retrieve the JavaVM.
+    // For direct JS evaluation, we can use the evalJs method
+    // which is now implemented in Kotlin
     let vm = get_java_vm().ok_or("Failed to get JavaVM")?;
     eprintln!("Successfully got JavaVM for eval_js");
     
-    // Attach the current thread to the JVM.
     let mut env = vm
         .attach_current_thread()
         .map_err(|e| format!("Failed to attach to JVM: {:?}", e))?;
     eprintln!("Successfully attached to JVM");
     
-    // Find the class "io/github/memkit/RustBridge".
-    let class_name = "io/github/memkit/RustBridge";
+    let class_name = "io/github/memkit/JsBridge";
     let class = env
         .find_class(class_name)
         .map_err(|e| format!("Failed to find class {}: {:?}", class_name, e))?;
     eprintln!("Successfully found class: {}", class_name);
     
-    // Create a Java string from js_code.
     let js_string = env
         .new_string(js_code)
         .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
     eprintln!("Successfully created Java string");
     
-    // Convert the JString into a JObject.
     let js_obj: JObject = JObject::from(js_string);
-    
-    // Prepare the argument list.
     let args = [JValue::Object(&js_obj)];
     
-    // Call the static method "evalJs".
     env.call_static_method(class, "evalJs", "(Ljava/lang/String;)V", &args)
         .map_err(|e| format!("Failed to call evalJs: {:?}", e))?;
     eprintln!("Successfully called evalJs method");
     
-    // Check for any exceptions thrown by the JVM.
     if env
         .exception_check()
         .map_err(|e| format!("Failed to check for exceptions: {:?}", e))?
@@ -128,7 +122,8 @@ pub async fn eval_js(js_code: &str) -> Result<(), String> {
 }
 
 /// Sends data to Kotlin by calling the static method `onMessageFromRust` on
-/// the Kotlin class "io.github.memkit.RustBridge".
+/// the Kotlin class "io.github.memkit.JsBridge".
+#[cfg(target_os = "android")]
 pub async fn send_to_java(message: String) -> Result<(), String> {
     eprintln!("Attempting to send message to Kotlin: {}", message);
     
@@ -140,7 +135,7 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to attach to JVM: {:?}", e))?;
     eprintln!("Successfully attached to JVM");
     
-    let class_name = "io/github/memkit/RustBridge";
+    let class_name = "io/github/memkit/JsBridge";
     let class = env
         .find_class(class_name)
         .map_err(|e| format!("Failed to find class {}: {:?}", class_name, e))?;
@@ -182,7 +177,7 @@ pub async fn send_to_java(message: String) -> Result<(), String> {
 /// It converts the incoming Java strings to Rust strings and then invokes the
 /// registered callback for the provided callback ID.
 #[no_mangle]
-pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
+pub extern "system" fn Java_io_github_memkit_JsBridge_onMessageFromJava(
     mut env: JNIEnv,
     _class: JClass,
     callback_id: JString,
@@ -231,16 +226,4 @@ pub extern "system" fn Java_io_github_memkit_RustBridge_onMessageFromJava(
     } else {
         eprintln!("No callback found for: {}", callback_id_str);
     }
-}
-
-/// JNI function to register the main activity instance
-#[no_mangle]
-pub extern "system" fn Java_io_github_memkit_RustBridge_registerInstance(
-    _env: JNIEnv,
-    _class: JClass,
-    _activity: JObject,
-) {
-    eprintln!("registerInstance called - activity registered");
-    // This function is called when MainActivity registers itself
-    // We don't need to do anything here as the JavaVM is already stored in JNI_OnLoad
 }
