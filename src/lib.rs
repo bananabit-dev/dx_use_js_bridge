@@ -7,7 +7,7 @@ use std::fmt::Debug;
 // Only import wasm-specific modules when targeting wasm
 #[cfg(target_arch = "wasm32")]
 use gloo_utils::format::JsValueSerdeExt;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
 use js_sys;
 #[cfg(target_arch = "wasm32")]
 use serde_wasm_bindgen;
@@ -19,6 +19,10 @@ use web_sys;
 // Import the android_bridge module
 #[cfg(target_os = "android")]
 mod android_bridge;
+
+// Always import uuid when the feature is enabled
+#[cfg(feature = "uuid")]
+use uuid;
 
 pub trait FromJs: for<'de> Deserialize<'de> + 'static {}
 impl<T> FromJs for T where T: for<'de> Deserialize<'de> + 'static {}
