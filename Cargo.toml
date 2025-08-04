@@ -26,7 +26,7 @@ libc = "0.2"
 jni = "0.21.1"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
-dioxus-desktop = { version = "0.7.0-alpha.3", default-features = false }
+dioxus-desktop = { version = "0.7.0-alpha.3", default-features = false, features = ["tokio_runtime"] }
 
 [features]
 default = ["uuid"]
