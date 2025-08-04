@@ -15,10 +15,6 @@ static CALLBACKS: Lazy<Mutex<HashMap<String, Box<dyn Fn(String) + Send + Sync>>>
 // Global static to hold the JavaVM pointer using atomic for better thread safety.
 static GLOBAL_JAVA_VM: AtomicPtr<sys::JavaVM> = AtomicPtr::new(ptr::null_mut());
 
-// Using Once to ensure we only try to get the JavaVM once if the stored pointer fails
-static INIT_JAVA_VM: Once = Once::new();
-static mut CACHED_JAVA_VM: Option<JavaVM> = None;
-
 /// This function is called when the native library is loaded.
 /// It stores the JavaVM pointer for later use.
 #[no_mangle]
@@ -47,10 +43,6 @@ fn get_java_vm() -> Option<JavaVM> {
             match JavaVM::from_raw(vm_ptr) {
                 Ok(vm) => {
                     eprintln!("Successfully created JavaVM from stored pointer");
-                    // Cache the VM for future use
-                    INIT_JAVA_VM.call_once(|| {
-                        CACHED_JAVA_VM = Some(vm.clone());
-                    });
                     return Some(vm);
                 }
                 Err(e) => {
@@ -58,48 +50,8 @@ fn get_java_vm() -> Option<JavaVM> {
                 }
             }
         } else {
-            eprintln!("Stored JavaVM pointer is null, trying cached version");
-            // Try to use the cached version if available
-            if let Some(cached_vm) = &CACHED_JAVA_VM {
-                return Some(cached_vm.clone());
-            }
+            eprintln!("Stored JavaVM pointer is null");
         }
-        
-        // Try to get it from JNI_GetCreatedJavaVMs as a fallback
-        get_created_java_vms()
-    }
-}
-
-/// Get JavaVM using JNI_GetCreatedJavaVMs as a fallback method
-#[cfg(target_os = "android")]
-fn get_created_java_vms() -> Option<JavaVM> {
-    unsafe {
-        let mut vm_buf: [*mut sys::JavaVM; 1] = [ptr::null_mut()];
-        let mut vm_count: sys::jint = 0;
-        
-        eprintln!("Attempting to get JavaVM using JNI_GetCreatedJavaVMs");
-        
-        // On Android, we need to ensure we're calling the right function
-        // Some Android versions might not have JNI_GetCreatedJavaVMs
-        // So we'll use a more direct approach
-        
-        // Try to get the stored VM one more time
-        let vm_ptr = GLOBAL_JAVA_VM.load(Ordering::SeqCst);
-        if !vm_ptr.is_null() {
-            match JavaVM::from_raw(vm_ptr) {
-                Ok(vm) => {
-                    eprintln!("Successfully created JavaVM from stored pointer (retry)");
-                    return Some(vm);
-                }
-                Err(e) => {
-                    eprintln!("Failed to create JavaVM from stored pointer (retry): {:?}", e);
-                }
-            }
-        }
-        
-        // If we still don't have a VM, try to create a minimal one
-        // This is a fallback for Android environments where direct access is restricted
-        eprintln!("Using Android-specific fallback for JavaVM");
         
         None
     }
