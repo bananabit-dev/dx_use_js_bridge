@@ -38,6 +38,7 @@ pub unsafe extern "C" fn JNI_OnLoad(
     
     // Print debug info
     eprintln!("JNI_OnLoad called, stored JavaVM pointer: {:?}", vm);
+    eprintln!("JNI_OnLoad successful - Bridge is working!");
     
     sys::JNI_VERSION_1_6
 }
