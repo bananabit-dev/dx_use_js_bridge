@@ -18,7 +18,7 @@ use web_sys;
 
 // Import the android_bridge module
 #[cfg(target_os = "android")]
-mod android_bridge;
+pub mod android_bridge;
 
 // Always import uuid when the feature is enabled
 #[cfg(feature = "uuid")]
