@@ -3,19 +3,47 @@
 TODO THIS IS A WORK IN PROGRESS USE IT AT YOUR OWN RISK!.
 
 A simple, platform-agnostic hook for two-way communication between Dioxus applications and JavaScript. This library allows you to send data from your Rust components to JavaScript and receive data back, using any serializable data type.
-Features
 
-    Seamless Two-Way Communication: Effortlessly send data from Rust to JS and receive data from JS in your Dioxus components.
+## Features
 
-    Hook-based API: Integrates smoothly into your components with a simple use_js_bridge hook.
+* Seamless Two-Way Communication: Effortlessly send data from Rust to JS and receive data from JS in your Dioxus components.
 
-    Type-Safe Generics: Define the exact data structure you expect from JavaScript, and the bridge will handle the deserialization. Works with any type that implements serde::Serialize and serde::Deserialize.
+* Hook-based API: Integrates smoothly into your components with a simple use_js_bridge hook.
 
-    Platform-Agnostic: Works on the web (wasm32) out-of-the-box. For other platforms (like desktop), the bridge provides non-functional stubs, preventing compilation errors.
+* Type-Safe Generics: Define the exact data structure you expect from JavaScript, and the bridge will handle the deserialization. Works with any type that implements serde::Serialize and serde::Deserialize.
 
-    Collision-Free: Automatically generates unique IDs for each bridge instance to prevent multiple bridges from interfering with each other.
+* Platform-Agnostic: Works on the web (wasm32) out-of-the-box. For other platforms (like desktop), the bridge provides non-functional stubs, preventing compilation errors.
 
-    Optional UUIDs: For more robust unique IDs, you can enable the uuid feature.
+* Collision-Free: Automatically generates unique IDs for each bridge instance to prevent multiple bridges from interfering with each other.
+
+* Optional UUIDs: For more robust unique IDs, you can enable the uuid feature.
+
+## Lobby Server
+
+This repository also includes a lobby server that provides HTTP endpoints for room management. This server resolves the "invalid json value <!DOCTYPE" error when clicking "join room" by providing proper JSON responses instead of HTML error pages.
+
+### Quick Start - Lobby Server
+
+To start the lobby server on port 3001:
+
+```bash
+./run-lobby-server.sh
+```
+
+Or manually:
+
+```bash
+cd lobby-server
+cargo run
+```
+
+The server provides endpoints for:
+- `GET /api/rooms` - List rooms
+- `POST /api/rooms` - Create rooms  
+- `POST /api/rooms/:id/join` - Join rooms
+- `GET /api/health` - Health check
+
+See [lobby-server/README.md](lobby-server/README.md) for full API documentation.
 
 Installation
 
