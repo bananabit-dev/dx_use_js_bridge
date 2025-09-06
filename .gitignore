@@ -1,1 +1,5 @@
 /target
+/lobby-server/target/
+lobby-server/Cargo.lock
+.env
+.env.local
