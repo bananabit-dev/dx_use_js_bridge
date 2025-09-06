@@ -1,1 +1,0 @@
-cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/home/runner/work/dx_use_js_bridge/dx_use_js_bridge/lobby/target/debug/build/mime_guess-3398711928995d74/out/mime_types_generated.rs
